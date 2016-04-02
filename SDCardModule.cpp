@@ -1,5 +1,5 @@
 /// ----------------------------------------------------------------------------------------------------------------
-/// SD CARD PART
+/// SD CARD MODULE Based on Petit FatFs
 /// ----------------------------------------------------------------------------------------------------------------
 #include <stdint.h>
 #include <avr/io.h>
@@ -160,7 +160,7 @@ void card_read_sector (
   uint32_t lba     // Start sector number (LBA)
 )
 {
-  uint8_t *p , rc;
+  uint8_t *p , rc, i;
 
   if (!(CardType & CT_SDHC)) lba *= 512;    // SDHC - LBA = block number (512 bytes), other - LBA = byte offset
 
@@ -173,8 +173,8 @@ void card_read_sector (
     if (rc == 0xFE)
     { // receive block data
       p = (uint8_t*)dest;
-      for(int i = 0; i < 512; i++)
-        *p++ = spiRead();
+      i=0; while(1) { *p++ = spiRead(); if(++i == 0) break; }
+      i=0; while(1) { *p++ = spiRead(); if(++i == 0) break; }
       spiRead(); // skip CRC
       spiRead(); // skip CRC
     }
