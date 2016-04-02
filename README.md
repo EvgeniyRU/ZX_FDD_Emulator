@@ -9,7 +9,8 @@ RUSSIAN
 
 
 
-DONATE:
-Yandex: 41001139627896
-WebMoney: R594328774666, Z793124813071
+<strong>DONATE:</strong><br>
+Yandex: 41001139627896<br>
+WebMoney: R594328774666, Z793124813071<br>
+<br>
 <a href='https://pledgie.com/campaigns/31396'><img alt='Click here to lend your support to: ZX-Spectrum FDD Emulator on Arduino and make a donation at pledgie.com !' src='https://pledgie.com/campaigns/31396.png?skin_name=chrome' border='0' ></a>
