@@ -346,7 +346,6 @@ void emu_init()
 
   //INIT INT0 interrupt
   EICRA = 0x03; // falling edge=2, rising edge=3
-  //EIFR = 0x01; // clear interrupt flag  
 
   sei();   // ENABLE GLOBAL INTERRUPTS
 
@@ -358,7 +357,7 @@ void emu_init()
   PORTD &= ~_BV(WP); // set 0
   PORTB |= _BV(DIR_SEL);
   DDRD |= _BV(INDEX) | _BV(TRK00) | _BV(WP);
-
+  // Init SPI for SD Card
   SPI_DDR = _BV(SPI_MOSI) | _BV(SPI_SCK) | _BV(SPI_CS); //set output mode for MOSI, SCK ! move SS to GND
   SPCR = _BV(MSTR) | _BV(SPE);   // Master mode, SPI enable, clock speed MCU_XTAL/4, LSB first
   SPSR = _BV(SPI2X);             // double speed
@@ -422,27 +421,30 @@ int main() {
         //-------------------------------------------------------------------------------------------
             //>>>>>> print "CYLINDER, HEAD INFO"
 
-            while (!data_sent);
+            while (!data_sent); // wait until sector data not sent
+            
             if( sector == 1 )
             {   
-                //////////////////if(PINC & 1) side = 0; else side = 1;
+                // Current SIDE detect
+                // code same as "if(PINC & 1) side = 0; else side = 1;"
+                ///////////////////////////////////////////////////////
                 asm("clr r5");
                 asm("sbis 0x06,0");
                 asm("inc r5");
                 ///////////////////////////////////////////////////////
           
                 if (s_cylinder != cylinder || s_side != side)
-                {   
-                    // LSEEK           
-                    s_cylinder = cylinder;
-                    s_side = side;
-                    uint8_t tr_offset = s_cylinder * 2 + s_side; // in tracks
-                    fptr_sect_main = tr_offset * 8; // in sd_card sectors
-                    curr_clust = clust_table[tr_offset];
-                    dsect = fat.database + (curr_clust - 2) * fat.csize + (fptr_sect_main & (fat.csize-1));
+                { // if track or side changed we need to change offset in TRD file
+                    s_cylinder = cylinder; // current Floppy cylinder
+                    s_side = side; // current Floppy side
+                    uint8_t tr_offset = s_cylinder * 2 + s_side; // track number
+                    fptr_sect_main = tr_offset * 8; // track offset in TRD file in sd_card sectors
+                    curr_clust = clust_table[tr_offset]; // track first cluster in FAT32
+                    dsect = fat.database + (curr_clust - 2) * fat.csize + (fptr_sect_main & (fat.csize-1)); // track start LBA number on SD card
                 }
                 chain_index = 0;
                 chain_gen_index = 0;
+                // update values for current track
                 fptr_sect = fptr_sect_main;
                 fat.curr_clust = curr_clust;
                 fat.dsect = dsect;
@@ -450,12 +452,12 @@ int main() {
             if(sector & 1)
             {
                 if( sector > 1 && !(fptr_sect & (fat.csize - 1)) )
-                { // cluster boundary
+                { // on cluster boundary, get next cluster number and calculate LBA
                     fat.curr_clust = cluster_chain[chain_index++];
                     fat.dsect = fat.database + (fat.curr_clust - 2) * fat.csize;
                 }
-                card_read_sector(sector_data,fat.dsect++);
-                fptr_sect++;
+                card_read_sector(sector_data,fat.dsect++); // read 2 floppy sectors from SD card (1 SD card sector) and increase LBA
+                fptr_sect++; // increase SD card sector in FAT32 cluster;
             }
             else if(chain_size >= sector/2)
             { // create cluster chain table when not reading sectors
