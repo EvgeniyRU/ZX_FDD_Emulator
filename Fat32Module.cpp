@@ -26,8 +26,8 @@ static int chk_chr (const char* str, int chr)
 
 
 /// FAT access - Read value of a FAT entry
-CLUST get_fat (      // 1:IO error, Else:Cluster status
-  CLUST clst      // Cluster# to get the link information
+uint32_t get_fat (      // 1:IO error, Else:Cluster status
+  uint32_t clst      // Cluster# to get the link information
 )
 {
   uint16_t wc, bc, ofs;
@@ -37,14 +37,13 @@ CLUST get_fat (      // 1:IO error, Else:Cluster status
   if (clst < 2 || clst >= fs->max_clust)        // Range check
     return 1;
 
-  if (card_readp(buf, fs->fatbase + clst / 128, ((uint32_t)clst % 128) * 4, 4)) return 1;
-  
-  return LD_DWORD(buf) & 0x0FFFFFFF;
+  if (card_readp(buf, fs->fatbase + (clst >> 7), ((uint8_t)clst & 127) * 4, 4)) return 1;  
+  return (uint32_t)*(uint32_t*)(buf) & 0x0FFFFFFF;
 }
 
 /// Get sector from cluster
 static uint32_t clust2sect (    // !=0: Sector number, 0: Failed - invalid cluster#
-  CLUST clst      // Cluster# to be converted
+  uint32_t clst      // Cluster# to be converted
 )
 {
   FATFS *fs = FatFs;
@@ -59,7 +58,7 @@ static FRESULT dir_rewind (
   DIR *dj       // Pointer to directory object
 )
 {
-  CLUST clst;
+  uint32_t clst;
   FATFS *fs = FatFs;
 
   dj->index = 0;
@@ -80,7 +79,7 @@ FRESULT pf_dirnext (      // FR_OK:Succeeded, FR_NO_FILE:End of table, FR_DENIED
   DIR *dj       // Pointer to directory object
 )
 {
-  CLUST clst;
+  uint32_t clst;
   uint16_t i;
   FATFS *fs = FatFs;
 
@@ -102,7 +101,7 @@ FRESULT pf_dirnext (      // FR_OK:Succeeded, FR_NO_FILE:End of table, FR_DENIED
     }
     else
     { // Dynamic table
-      if (((i >> 4) & (fs->csize-1)) == 0)    // if (i / 16 = sector number ) & (sectors per cluster - 1) == 0
+      if (((i >> 4) & (fs->csize-1)) == 0)    // if ((i >> 4) = sector number ) & (sectors per cluster - 1) == 0
       { // Cluster changed?
         clst = get_fat(dj->clust);    // Get next cluster
         if (clst <= 1) return FR_DISK_ERR;  // Unable to get cluster number
@@ -125,7 +124,7 @@ FRESULT pf_dirprev (      // FR_OK:Succeeded
   DIR *dj       // Pointer to directory object
 )
 {
-  CLUST clst, cl_num;
+  uint32_t clst, cl_num;
   uint16_t i;
   FATFS *fs = FatFs;
   uint8_t s_num;
@@ -290,9 +289,9 @@ static void get_fileinfo (    // No return code
       }
     }
     fno->fattrib = dir[DIR_Attr];       // Attribute
-    fno->fsize = LD_DWORD(dir+DIR_FileSize);    // Size
-    fno->fdate = LD_WORD(dir+DIR_WrtDate);      // Date
-    fno->ftime = LD_WORD(dir+DIR_WrtTime);      // Time
+    fno->fsize = (uint32_t)*(uint32_t*)(dir+DIR_FileSize);    // Size
+    fno->fdate = (uint16_t)*(uint16_t*)(dir+DIR_WrtDate);      // Date
+    fno->ftime = (uint16_t)*(uint16_t*)(dir+DIR_WrtTime);      // Time
   }
   *p = 0;
 }
@@ -334,7 +333,7 @@ static FRESULT follow_path (    // FR_OK(0): successful, !=0: error code
       dir = FatFs->buf;       // There is next segment. Follow the sub directory
       if (!(dir[DIR_Attr] & AM_DIR))      // Cannot follow because it is a file
         res = FR_NO_PATH; break;
-      dj->sclust = ((uint32_t)LD_WORD(dir+DIR_FstClusHI) << 16) | LD_WORD(dir+DIR_FstClusLO);
+      dj->sclust = ((uint32_t)(uint16_t)*(uint16_t*)(dir+DIR_FstClusHI) << 16) | (uint16_t)*(uint16_t*)(dir+DIR_FstClusLO);
     }
   }
 
@@ -351,10 +350,10 @@ static uint8_t check_fs (     // 0:The FAT boot record, 1:Valid boot record but 
   if (card_readp(buf, sect, 0x1FE, 2))        // Read the boot sector signature
     return 3;
 
-  if (LD_WORD(buf) != 0xAA55)         // Check MBR signature
+  if ((uint16_t)*(uint16_t*)(buf) != 0xAA55)         // Check MBR signature
     return 2;
 
-  if (!card_readp(buf, sect, 0x52, 2) && LD_WORD(buf) == 0x4146)  // Check FAT32
+  if (!card_readp(buf, sect, 0x52, 2) && (uint16_t)*(uint16_t*)(buf) == 0x4146)  // Check FAT32
     return 0;
 
   return 1;
@@ -387,7 +386,7 @@ FRESULT pf_mount (
       fmt = 3; // unable to read
     } else {
       if ( buf[4]==0x0B || buf[4]==0x0C ) {   // Check partition type for FAT32
-        bsect = LD_DWORD(&buf[8]);    // LBA Begin of partition
+        bsect = (uint32_t)*(uint32_t*)(&buf[8]);    // LBA Begin of partition
         fmt = check_fs(buf, bsect);   // Check the partition 
       }
       else fmt = 1; // not fat32
@@ -402,13 +401,13 @@ FRESULT pf_mount (
   
   fs->csize = buf[BPB_SecPerClus];        // Number of sectors per cluster
 
-  fsize = LD_WORD(buf + BPB_FATSz32) * buf[BPB_NumFATs];
-  rsvsect = LD_WORD(buf+BPB_RsvdSecCnt);
+  fsize = (uint16_t)*(uint16_t*)(buf + BPB_FATSz32) * buf[BPB_NumFATs];
+  rsvsect = (uint16_t)*(uint16_t*)(buf+BPB_RsvdSecCnt);
   
   // Maximum cluster# + 1. Number of clusters is max_clust - 2
-  fs->max_clust = (CLUST)((LD_DWORD(buf+BPB_TotSec32) - rsvsect - fsize) / fs->csize + 2);
+  fs->max_clust = (uint32_t)(((uint32_t)*(uint32_t*)(buf+BPB_TotSec32) - rsvsect - fsize) / fs->csize + 2);
   
-  fs->dirbase = LD_DWORD(buf+BPB_RootClus);     // Root directory first cluster
+  fs->dirbase = (uint32_t)*(uint32_t*)(buf+BPB_RootClus);     // Root directory first cluster
 
   fs->fatbase = bsect + rsvsect;          // FAT begin LBA
   fs->database = fs->fatbase + fsize;       // Cluster begin LBA
@@ -438,8 +437,8 @@ uint8_t pf_open (const char *path)
     return FR_NO_FILE;
 
   fs->org_clust =             // File start cluster
-    ((uint32_t)LD_WORD(dir+DIR_FstClusHI) << 16) | LD_WORD(dir+DIR_FstClusLO);
-  fs->fsize = LD_DWORD(dir+DIR_FileSize);       // File size
+    ((uint32_t)(uint16_t)*(uint16_t*)(dir+DIR_FstClusHI) << 16) | (uint16_t)*(uint16_t*)(dir+DIR_FstClusLO);
+  fs->fsize = (uint32_t)*(uint32_t*)(dir+DIR_FileSize);       // File size
   fs->fptr = 0;             // File pointer
 
   return FR_OK;
@@ -453,7 +452,7 @@ uint16_t pf_read (
 )
 {
   uint16_t bread = 0, rcnt;
-  CLUST clst;
+  uint32_t clst;
   uint32_t sect, remain;
   uint8_t *rbuff = (uint8_t*)dest;
   FATFS *fs = FatFs;
@@ -465,9 +464,9 @@ uint16_t pf_read (
   
   for (;btr;rbuff += rcnt, fs->fptr += rcnt, bread += rcnt, btr -= rcnt)
   { // Repeat until all data transferred
-    if ((fs->fptr % 512) == 0)
+    if ((fs->fptr & 511) == 0)
     { // On the sector boundary?
-      if ((fs->fptr / 512 % fs->csize) == 0)
+      if (((fs->fptr >> 9) & (fs->csize - 1)) == 0)
       { // On the cluster boundary?
         clst = (fs->fptr == 0) ?    // On the top of the file?
           fs->org_clust : get_fat(fs->curr_clust);
@@ -483,9 +482,9 @@ uint16_t pf_read (
       fs->dsect = sect;
       fs->csect++;          // Next sector address in the cluster
     }
-    rcnt = 512 - ((uint16_t)fs->fptr % 512);      // Get partial sector data from sector buffer
+    rcnt = 512 - ((uint16_t)fs->fptr & 511);      // Get partial sector data from sector buffer
     if (rcnt > btr) rcnt = btr;
-    if (card_readp(rbuff, fs->dsect, (uint16_t)(fs->fptr % 512), rcnt))
+    if (card_readp(rbuff, fs->dsect, (uint16_t)(fs->fptr & 511), rcnt))
       return 0;
   }
 
@@ -498,7 +497,7 @@ FRESULT pf_lseek (
   uint32_t ofs   /* File pointer from top of file */
 )
 {
-  CLUST clst;
+  uint32_t clst;
   uint32_t bcs, sect, ifptr;
   FATFS *fs = FatFs;
 
@@ -531,7 +530,7 @@ FRESULT pf_lseek (
     fs->fptr += ofs;
     sect = clust2sect(clst);    /* Current sector */
     if (!sect) return FR_DISK_ERR;
-    fs->dsect = sect + (fs->fptr / 512 & (fs->csize - 1));
+    fs->dsect = sect + ((fs->fptr >> 9) & (fs->csize - 1));
   }
 
   return FR_OK;
@@ -558,7 +557,7 @@ FRESULT pf_opendir (
     if (res == FR_OK) {         // File found
       if (dir[0]) {         // It is not empty dir
         if (dir[DIR_Attr] & AM_DIR)   // The object is a directory
-          dj->sclust = ((uint32_t)LD_WORD(dir+DIR_FstClusHI) << 16) | LD_WORD(dir+DIR_FstClusLO);
+          dj->sclust = ((uint32_t)(uint16_t)*(uint16_t*)(dir+DIR_FstClusHI) << 16) | (uint16_t)*(uint16_t*)(dir+DIR_FstClusLO);
         else          // The object is not a directory
           res = FR_NO_PATH;
       }

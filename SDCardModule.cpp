@@ -28,6 +28,7 @@ static uint8_t send_cmd(uint8_t cmd, uint32_t param, uint8_t cnt)
   uint8_t send[6];
   uint8_t i, res;
 
+  DESELECT();
   if (cmd & 0x80)
   { // ACMD{X} is the command sequense of CMD55 + CMD{X}
     cmd &= 0x7F;
@@ -36,9 +37,9 @@ static uint8_t send_cmd(uint8_t cmd, uint32_t param, uint8_t cnt)
   }
 
   /* Select the card */
-  DESELECT(SPI_CS);
+  DESELECT();
   spiRead();
-  SELECT(SPI_CS);
+  SELECT();
   spiRead();
 
 
@@ -67,8 +68,8 @@ CSTATUS card_initialize (void)
 
   CardType = 0;
 
-  DESELECT(SPI_CS);
-  for (n = 20; n; n--) spiRead(); // wait some time
+  DESELECT();
+  for (n = 10; n; n--) spiRead(); // wait some time
 
   if (send_cmd(CMD0, 0, 0) == 1)
   { // Entered Idle state
@@ -98,13 +99,13 @@ CSTATUS card_initialize (void)
       }
       
       while( (n = send_cmd(cmd, 0, 0)) == 1);
-            if( n > 1 ) return STA_NOINIT;
+      if( n > 1 ) return STA_NOINIT;
 
       if (send_cmd(CMD16, 512, 0) != 0) CardType = 0; // Set R/W block length to 512        
     }
   }
 
-  DESELECT(SPI_CS);
+  DESELECT();
   spiRead();
 
   return CardType ? 0 : STA_NOINIT;
@@ -148,7 +149,7 @@ CRESULT card_readp (
     }
   }
 
-  DESELECT(SPI_CS);
+  DESELECT();
   spiRead();
 
   return cnt ? RES_ERROR : RES_OK;
@@ -164,8 +165,7 @@ void card_read_sector (
 
   if (!(CardType & CT_SDHC)) lba *= 512;    // SDHC - LBA = block number (512 bytes), other - LBA = byte offset
 
-
-  if (send_cmd(CMD17, lba, 0) == 0)
+  if (send_cmd(CMD17, lba, 0) == 0)  
   { // READ_SINGLE_BLOCK
 
     while( (rc = spiRead() ) == 0xFF ); // wait for CARD is ready to transmit block of data
@@ -180,7 +180,7 @@ void card_read_sector (
     }
   }
 
-  DESELECT(SPI_CS);
+  DESELECT();
   spiRead();
 }
 /// ----------------------------------------------------------------------------------------------------------------

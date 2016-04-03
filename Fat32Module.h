@@ -5,22 +5,20 @@
 /// ----------------------------------------------------------------------------------------------------------------
 /// FAT32 PART
 /// ----------------------------------------------------------------------------------------------------------------
-
-#define  CLUST uint32_t
   
 /// File system object structure
 typedef struct _FATFS_ {
   uint8_t csize;        // Number of sectors per cluster
   uint8_t csect;        // File sector address in the cluster
   uint8_t*  buf;        // Pointer to the disk access buffer
-  CLUST max_clust;      // Maximum cluster# + 1. Number of clusters is max_clust - 2
+  uint32_t max_clust;      // Maximum cluster# + 1. Number of clusters is max_clust - 2
   uint32_t  fatbase;      // FAT start sector
   uint32_t  dirbase;      // Root directory start Cluster
   uint32_t  database;     // Data start sector
   uint32_t  fptr;       // File R/W pointer
   uint32_t  fsize;        // File size
-  CLUST org_clust;      // File start cluster
-  CLUST curr_clust;     // File current cluster
+  uint32_t org_clust;      // File start cluster
+  uint32_t curr_clust;     // File current cluster
   uint32_t  dsect;        // File current data sector
 } FATFS;
 
@@ -29,8 +27,8 @@ typedef struct _FATFS_ {
 typedef struct _DIR_ {
   uint16_t  index;        // Current read/write index number
   uint8_t*  fn;       // Pointer to the SFN (in/out) {file[8],ext[3],status[1]}
-  CLUST sclust;       // Table start cluster (0:Static table)
-  CLUST clust;        // Current cluster
+  uint32_t sclust;       // Table start cluster (0:Static table)
+  uint32_t clust;        // Current cluster
   uint32_t  sect;       // Current sector
 } DIR;
 
@@ -96,7 +94,7 @@ typedef enum {
 
 
 
-CLUST get_fat (CLUST);
+uint32_t get_fat (uint32_t);
 
 FRESULT pf_mount (FATFS*);				/* Mount/Unmount a logical drive */
 uint8_t pf_open (const char*);			/* Open a file */
@@ -104,18 +102,5 @@ uint16_t pf_read (void*, uint16_t);	/* Read data from a file */
 FRESULT pf_lseek (uint32_t);				/* Move file pointer of a file object */
 FRESULT pf_opendir (DIR*, const char*);	/* Open an existing directory */
 FRESULT pf_readdir (DIR*, FILINFO*);	/* Read a directory item */
-
-#if _WORD_ACCESS == 1  /* Enable word access to the FAT structure */
-#define LD_WORD(ptr)    (uint16_t)(*(uint16_t*)(uint8_t*)(ptr))
-#define LD_DWORD(ptr)   (uint32_t)(*(uint32_t*)(uint8_t*)(ptr))
-#define ST_WORD(ptr,val)  *(uint16_t*)(uint8_t*)(ptr)=(uint16_t)(val)
-#define ST_DWORD(ptr,val) *(uint32_t*)(uint8_t*)(ptr)=(uint32_t)(val)
-#else         /* Use byte-by-byte access to the FAT structure */
-#define LD_WORD(ptr)    (uint16_t)(((uint16_t)*(uint8_t*)((ptr)+1)<<8)|(uint16_t)*(uint8_t*)(ptr))
-#define LD_DWORD(ptr)   (uint32_t)(((uint32_t)*(uint8_t*)((ptr)+3)<<24)|((uint32_t)*(uint8_t*)((ptr)+2)<<16)|((uint16_t)*(uint8_t*)((ptr)+1)<<8)|*(uint8_t*)(ptr))
-#define ST_WORD(ptr,val)  *(uint8_t*)(ptr)=(uint8_t)(val); *(uint8_t*)((ptr)+1)=(uint8_t)((uint16_t)(val)>>8)
-#define ST_DWORD(ptr,val) *(uint8_t*)(ptr)=(uint8_t)(val); *(uint8_t*)((ptr)+1)=(uint8_t)((uint16_t)(val)>>8); *(uint8_t*)((ptr)+2)=(uint8_t)((uint32_t)(val)>>16); *(uint8_t*)((ptr)+3)=(uint8_t)((uint32_t)(val)>>24)
-#endif
-
 
 #endif /* FAT32_MODULE_H */
