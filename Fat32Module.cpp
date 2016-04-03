@@ -31,14 +31,14 @@ uint32_t get_fat (      // 1:IO error, Else:Cluster status
 )
 {
   uint16_t wc, bc, ofs;
-  uint8_t buf[4];
+  uint32_t buf;
   FATFS *fs = FatFs;
 
   if (clst < 2 || clst >= fs->max_clust)        // Range check
     return 1;
 
-  if (card_readp(buf, fs->fatbase + (clst >> 7), ((uint8_t)clst & 127) * 4, 4)) return 1;  
-  return (uint32_t)*(uint32_t*)(buf) & 0x0FFFFFFF;
+  if (card_readp(&buf, fs->fatbase + (clst >> 7), ((uint8_t)clst & 127) * 4, 4)) return 1;  
+  return buf & 0x0FFFFFFF;
 }
 
 /// Get sector from cluster
@@ -289,9 +289,9 @@ static void get_fileinfo (    // No return code
       }
     }
     fno->fattrib = dir[DIR_Attr];       // Attribute
-    fno->fsize = (uint32_t)*(uint32_t*)(dir+DIR_FileSize);    // Size
-    fno->fdate = (uint16_t)*(uint16_t*)(dir+DIR_WrtDate);      // Date
-    fno->ftime = (uint16_t)*(uint16_t*)(dir+DIR_WrtTime);      // Time
+    fno->fsize = (uint32_t)*(uint32_t*)(&dir[DIR_FileSize]);    // Size
+    fno->fdate = (uint16_t)*(uint16_t*)(&dir[DIR_WrtDate]);     // Date
+    fno->ftime = (uint16_t)*(uint16_t*)(&dir[DIR_WrtTime]);     // Time
   }
   *p = 0;
 }
@@ -333,7 +333,7 @@ static FRESULT follow_path (    // FR_OK(0): successful, !=0: error code
       dir = FatFs->buf;       // There is next segment. Follow the sub directory
       if (!(dir[DIR_Attr] & AM_DIR))      // Cannot follow because it is a file
         res = FR_NO_PATH; break;
-      dj->sclust = ((uint32_t)(uint16_t)*(uint16_t*)(dir+DIR_FstClusHI) << 16) | (uint16_t)*(uint16_t*)(dir+DIR_FstClusLO);
+      dj->sclust = (((uint32_t)(uint16_t)*(uint16_t*)&dir[DIR_FstClusHI]) << 16) | ((uint16_t)*(uint16_t*)(&dir[DIR_FstClusLO]));
     }
   }
 
@@ -350,10 +350,10 @@ static uint8_t check_fs (     // 0:The FAT boot record, 1:Valid boot record but 
   if (card_readp(buf, sect, 0x1FE, 2))        // Read the boot sector signature
     return 3;
 
-  if ((uint16_t)*(uint16_t*)(buf) != 0xAA55)         // Check MBR signature
+  if ((uint16_t)*(uint16_t*)buf != 0xAA55)         // Check MBR signature
     return 2;
 
-  if (!card_readp(buf, sect, 0x52, 2) && (uint16_t)*(uint16_t*)(buf) == 0x4146)  // Check FAT32
+  if (!card_readp(buf, sect, 0x52, 2) && (uint16_t)*(uint16_t*)buf == 0x4146)  // Check FAT32
     return 0;
 
   return 1;
@@ -401,13 +401,13 @@ FRESULT pf_mount (
   
   fs->csize = buf[BPB_SecPerClus];        // Number of sectors per cluster
 
-  fsize = (uint16_t)*(uint16_t*)(buf + BPB_FATSz32) * buf[BPB_NumFATs];
-  rsvsect = (uint16_t)*(uint16_t*)(buf+BPB_RsvdSecCnt);
+  fsize = (uint32_t)*(uint32_t*)(&buf[BPB_FATSz32]) * buf[BPB_NumFATs];
+  rsvsect = (uint16_t)*(uint16_t*)(&buf[BPB_RsvdSecCnt]);
   
   // Maximum cluster# + 1. Number of clusters is max_clust - 2
-  fs->max_clust = (uint32_t)(((uint32_t)*(uint32_t*)(buf+BPB_TotSec32) - rsvsect - fsize) / fs->csize + 2);
+  fs->max_clust = ((uint32_t)*(uint32_t*)(&buf[BPB_TotSec32]) - rsvsect - fsize) / fs->csize + 2;
   
-  fs->dirbase = (uint32_t)*(uint32_t*)(buf+BPB_RootClus);     // Root directory first cluster
+  fs->dirbase = (uint32_t)*(uint32_t*)(&buf[BPB_RootClus]);     // Root directory first cluster
 
   fs->fatbase = bsect + rsvsect;          // FAT begin LBA
   fs->database = fs->fatbase + fsize;       // Cluster begin LBA

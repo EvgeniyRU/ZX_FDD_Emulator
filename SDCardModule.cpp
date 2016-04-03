@@ -25,7 +25,6 @@ static void spiSend(uint8_t d)
 // Send a command to CARD
 static uint8_t send_cmd(uint8_t cmd, uint32_t param, uint8_t cnt)
 {
-  uint8_t send[6];
   uint8_t i, res;
 
   DESELECT();
@@ -164,19 +163,23 @@ void card_read_sector (
   uint8_t *p , rc, i;
 
   if (!(CardType & CT_SDHC)) lba *= 512;    // SDHC - LBA = block number (512 bytes), other - LBA = byte offset
-
-  if (send_cmd(CMD17, lba, 0) == 0)  
+  
+  if (send_cmd(CMD17, lba, 0) == 0)
   { // READ_SINGLE_BLOCK
-
     while( (rc = spiRead() ) == 0xFF ); // wait for CARD is ready to transmit block of data
-
+    
     if (rc == 0xFE)
     { // receive block data
       p = (uint8_t*)dest;
-      i=0; while(1) { *p++ = spiRead(); if(++i == 0) break; }
-      i=0; while(1) { *p++ = spiRead(); if(++i == 0) break; }
-      spiRead(); // skip CRC
-      spiRead(); // skip CRC
+      i = 0, rc = 2;
+      do { // read 512 bytes
+        SPDR = 0xFF;
+        loop_until_bit_is_set(SPSR, SPIF);
+        *p++ = SPDR;
+        if(++i == 0) rc--;
+      } while(rc != 0);
+      spiRead();
+      spiRead();
     }
   }
 
