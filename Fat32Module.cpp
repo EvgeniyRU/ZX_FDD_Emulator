@@ -38,6 +38,7 @@ uint32_t get_fat (      // 1:IO error, Else:Cluster status
     return 1;
 
   if (card_readp(&buf, fs->fatbase + (clst >> 7), ((uint8_t)clst & 127) * 4, 4)) return 1;  
+  
   return buf & 0x0FFFFFFF;
 }
 
@@ -49,7 +50,7 @@ static uint32_t clust2sect (    // !=0: Sector number, 0: Failed - invalid clust
   FATFS *fs = FatFs;
   clst -= 2;
   if (clst >= (fs->max_clust - 2)) return 0;      // Invalid cluster#
-  return (uint32_t)clst * fs->csize + fs->database;
+  return clst * fs->csize + fs->database;
 }
 
 
@@ -426,7 +427,7 @@ uint8_t pf_open (const char *path)
   uint8_t sp[12], dir[32];
   FATFS *fs = FatFs;
 
-  if (!fs) return FR_NOT_ENABLED;         // Check if file system is mounted
+  if (!fs) return FR_NOT_ENABLED;       // Check if file system is mounted
     
   fs->buf = dir;
   dj.fn = sp;
@@ -436,10 +437,10 @@ uint8_t pf_open (const char *path)
   if (!dir[0] || (dir[DIR_Attr] & AM_DIR))      // It is a directory
     return FR_NO_FILE;
 
-  fs->org_clust =             // File start cluster
-    ((uint32_t)(uint16_t)*(uint16_t*)(dir+DIR_FstClusHI) << 16) | (uint16_t)*(uint16_t*)(dir+DIR_FstClusLO);
-  fs->fsize = (uint32_t)*(uint32_t*)(dir+DIR_FileSize);       // File size
-  fs->fptr = 0;             // File pointer
+  fs->org_clust =                       // File start cluster
+    ((uint16_t)*(uint16_t*)&dir[DIR_FstClusHI] << 16) | (uint16_t)*(uint16_t*)&dir[DIR_FstClusLO];
+  fs->fsize = (uint32_t)*(uint32_t*)&dir[DIR_FileSize];       // File size
+  fs->fptr = 0;                         // File pointer
 
   return FR_OK;
 }
@@ -447,7 +448,7 @@ uint8_t pf_open (const char *path)
 
 /// Read File
 uint16_t pf_read (
-  void* dest,     // Pointer to the destination object
+  void* dest,       // Pointer to the destination object
   uint16_t btr      // Number of bytes to read (bit15:destination)
 )
 {

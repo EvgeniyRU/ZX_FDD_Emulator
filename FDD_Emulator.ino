@@ -22,23 +22,20 @@ FATFS fat;
 /// EMULATOR START -------------------------------------------------------------------------------------------------
 
 #define MAX_CYL 86            /// maximal cylinder supported by FDD
-#define MAX_TRACKS MAX_CYL*2  /// maximal track
+#define MAX_TRACK MAX_CYL*2  /// maximal track
 
 uint8_t sector_header[64]; // sector header
 uint8_t sector_data[2][256]; // sector data
-uint32_t clust_table[MAX_TRACKS]; // Cluster table
+uint32_t clust_table[MAX_TRACK]; // Cluster table
 uint32_t cluster_chain[4]; // max cluster chain 4 is for 1k cluster or less if higher
 
-//register volatile uint8_t data_sent asm("r2");
-//register volatile uint8_t sector asm("r3");
-
 // STATE variable values
-// 0-3 - TRACK HEADER
-// 4-9 - SECTOR
-// 10  - TRACK FOOTER
-uint8_t state, cylinder, max_cylinder, s_cylinder, sector_byte, prev_byte, second_byte, tmp, b_index, sector, s_side;
-static volatile uint8_t data_sent;
-volatile uint16_t CRC;
+// 0-2    - TRACK HEADER
+// 4-9    - SECTOR
+// 10-11  - TRACK FOOTER
+uint8_t state, max_cylinder, sector_byte, prev_byte, second_byte, tmp, b_index, cylinder, sector_hold, s_side, s_cylinder, sector;
+volatile uint8_t data_sent;
+uint16_t CRC;
 
 uint8_t MFM_tab[32] = { 0xAA,0xA9,0xA4,0xA5,0x92,0x91,0x94,0x95,0x4A,0x49,0x44,0x45,0x52,0x51,0x54,0x55,0x2A,0x29,0x24,0x25,0x12,0x11,0x14,0x15,0x4A,0x49,0x44,0x45,0x52,0x51,0x54,0x55 };
 
@@ -79,6 +76,14 @@ const uint16_t Crc16Table[256] PROGMEM = {
 
 
 ///
+/// Interrupts enable/disable functions
+///////////////////////////////////////////
+void inline USART_enable() { UCSR0B |= 0x20; }
+void inline USART_disable() { UCSR0B &= ~0x20; }
+void inline INT0_enable() { EIMSK |= 0x01; }
+void inline INT0_disable() { EIMSK &= ~0x01; }
+
+///
 /// STEP pin interrupt
 ///////////////////////////////////////////
 ISR(INT0_vect)
@@ -88,14 +93,6 @@ ISR(INT0_vect)
   }
   else
     if(cylinder < max_cylinder) cylinder++;
-}
-
-///
-/// SIDE pin interrupt
-///////////////////////////////////////////
-ISR(INT1_vect)
-{
-  
 }
 
 ///
@@ -109,54 +106,51 @@ ISR(USART_UDRE_vect)
     switch (state)
     {
       case 0: // start track header -----------------------------------------
-            DDRD |= _BV(INDEX); // Set INDEX - LOW
             if(s_cylinder == 0) DDRD |= _BV(TRK00); else DDRD &= ~_BV(TRK00); // Set TRK00 Low or HI-Z
-            state = 1;            
             sector_byte = 0x4E;
+            state = 1;            
             break;
-      case 1: // send track header ------------------------------------------
-            if (++b_index != 30) break; // 80 in FDD
+      case 1: // start track header -----------------------------------------
+            DDRD |= _BV(INDEX); // Set INDEX - LOW
+            state = 2;            
+            break;
+      case 2: // send track header ------------------------------------------
+            if (++b_index != 50) break; // 80 in FDD
             state = 4;
             b_index = 0;
             DDRD &= ~_BV(INDEX); // Set INDEX - HI-Z
             break;            
 
       case 4: // SECTOR START (ADDERSS FIELD) ------------------------------
-            switch (b_index)
+            switch(b_index)
             {
               case 0:                
                 CRC = 0xB230;
                 break;          
 
-              case 1:
+              case 8:
+                sector_header[16] = s_cylinder;
                 CRC = (CRC << 8) ^ pgm_read_word_near(Crc16Table + ((CRC >> 8) ^ s_cylinder));
                 break;
 
-              case 2:
+              case 9:
+                sector_header[17] = s_side;
                 CRC = (CRC << 8) ^ pgm_read_word_near(Crc16Table + ((CRC >> 8) ^ s_side));
                 break;
 
-              case 3:
+              case 10:
+                sector_header[18] = sector + 1;
                 CRC = (CRC << 8) ^ pgm_read_word_near(Crc16Table + ((CRC >> 8) ^ (sector + 1)));
                 break;
 
-              case 4:
+              case 11:
                 CRC = (CRC << 8) ^ pgm_read_word_near(Crc16Table + ((CRC >> 8) ^ 1)); // sector size 1 = 256;
                 break;
-                      
-              case 5:
-                sector_header[16] = s_cylinder;
-                sector_header[17] = s_side;
-                break;
-                                  
+                                                        
               case 12:
               case 13:
               case 14:
                 second_byte = 0x89;
-                break;
-
-              case 15:
-                sector_header[18] = sector + 1;
                 break;
 
               case 16:
@@ -175,21 +169,27 @@ ISR(USART_UDRE_vect)
             }
             // send sector bytes before data
             sector_byte = sector_header[b_index++];   // pre-get new byte from buffer
+            
             if (b_index != 60) break;
-
             b_index = 0;
             state = 5;
             // START GENERATING CRC HERE, PRE-CALC value for A1,A1,A1,FB = 0xE295        
             CRC = 0xE295; // next CRC value
-            data_sent = 1;
+            data_sent = 0;
+            sector_hold = sector & 1;
             break;
-        
+      
       case 5: // DATA FIELD -------------------------------------------------        
             // get sector data values
-            sector_byte = sector_data[(sector & 1)][b_index++];   // pre-get new byte from buffer
+            sector_byte = sector_data[sector_hold][b_index++];   // pre-get new byte from buffer
             CRC = (CRC << 8) ^ pgm_read_word_near(Crc16Table + ((CRC >> 8) ^ sector_byte));
             if (b_index != 0) break;
             state = 6;
+            if (sector <= 14)
+            {
+              sector++; // increase sector
+              data_sent = 1;  // reset flag indicates end of sector, for reading new sectors
+            }            
             break;
         
       case 6: // SECTOR CRC ----------------------------------------------------
@@ -203,11 +203,6 @@ ISR(USART_UDRE_vect)
             break;
       
       case 8: // SECTOR FOOTER -------------------------------------------------            
-            if (sector <= 14)
-            {
-              sector++; // increase sector
-              data_sent = 0;  // reset flag indicates end of sector, for reading new sectors
-            }            
             sector_byte = 0x4E;
             state = 9;
             break;      
@@ -215,7 +210,7 @@ ISR(USART_UDRE_vect)
       case 9:
             b_index++;
             if (b_index != 80) break; // 56 in FDD, increased for stability!!!
-            if (!data_sent)
+            if (data_sent)
             {
                 state = 4;
                 b_index = 0;
@@ -224,17 +219,20 @@ ISR(USART_UDRE_vect)
             state = 10;
             break;
             
-      case 10:           
+      case 10: // TRACK FOOTER -------------------------------------------------           
             sector = 0;
             data_sent = 0;  // reset flag indicates end of track, for reinitialize track data and read new sectors            
             state = 11;
             b_index = 0;
             break;
 
-      case 11: // TRACK FOOTER -------------------------------------------------
-            if (++b_index != 100) break; // > 500 in FDD
+      case 11:
+            if (++b_index != 50) break; // > 500 in FDD
             state = 0;
             b_index = 0;
+            data_sent = 2;
+            USART_disable(); // disable interrupt after sending track
+            goto ISR_END;
             break;
     } // GET DATA BYTE END
 
@@ -258,6 +256,7 @@ ISR(USART_UDRE_vect)
     
     tmp = 0; // this is important!
   }
+ISR_END:;
 }
 
 ///
@@ -285,21 +284,12 @@ void prepare_sector_header()
   sector_header[59] = 0xFB;         // 0x3B(59)
 }
 
-
-///
-/// Interrupts enable/disable functions
-///////////////////////////////////////////
-void inline USART_enable() { UCSR0B |= 0x20; }
-void inline USART_disable() { UCSR0B &= ~0x20; }
-void inline INT0_enable() { EIMSK |= 0x01; }
-void inline INT0_disable() { EIMSK &= ~0x01; }
-
 /// FDD Emulator initialization
 ///////////////////////////////////////////
 void emu_init()
 {
   cli(); // DISABLE GLOBAL INTERRUPTS
-  
+
   prepare_sector_header();
 
   // Setup USART in MasterSPI mode 500000bps
@@ -326,7 +316,6 @@ void emu_init()
   sei();   // ENABLE GLOBAL INTERRUPTS
 }
 
-
 ///
 /// MAIN Routine
 ///////////////////////////////////////////
@@ -347,9 +336,7 @@ int main() {
       while (1)
       { /// DRIVE SELECT LOOP
 
-        uint8_t chain_index, chain_size, chain_gen_index, side, track, csize_mod = fat.csize-1;
-        // FAT32 related vars
-        uint32_t track_LBA, curr_clust;
+        uint8_t chain_index, chain_size, chain_gen_index, track, csize_mod = fat.csize-1;
 
         while (PIND & _BV(MOTOR_ON));
 
@@ -358,7 +345,7 @@ int main() {
         /////////////////////////////////////////////////////////////////
         // INIT after drive selected
             
-        while(pf_open("default.trd") != FR_OK);
+        if(pf_open("default.trd") != FR_OK) break;
 
         chain_size = 8 / (fat.csize+1);
 
@@ -368,7 +355,7 @@ int main() {
         clust_table[0] = fat.org_clust;
         uint8_t fats_per_track = 8 / fat.csize;
         uint8_t tracks_per_cluster = fat.csize / 8;
-        for(uint8_t i = 1; i < MAX_TRACKS; i++) 
+        for(uint8_t i = 1; i < MAX_TRACK; i++) 
         {
           uint32_t cur_fat = clust_table[i-1];
           if(tracks_per_cluster == 0)
@@ -381,66 +368,58 @@ int main() {
         }
         
         // update values for current track
-        s_cylinder = cylinder = data_sent = prev_byte = second_byte = sector = side = tmp = b_index = chain_index = chain_gen_index = 0;        
+        state = s_cylinder = cylinder = prev_byte = second_byte = sector = tmp = b_index = chain_index = chain_gen_index = 0;        
 
-        // ENABLE INDERRUPTS (USART and STEP pin)
-        INT0_enable();
-        state = 11;
-        s_side = 2; // cheat to load track sectors
-        sector_byte = 0x4E;
-        USART_enable();
+        
+        INT0_enable(); // ENABLE INDERRUPT (STEP pin)
+        data_sent = 2;        
         
         do { // READ DATA SEND LOOP (send data from FDD to FDD controller)  
         //-------------------------------------------------------------------------------------------
-            //>>>>>> print "CYLINDER, HEAD INFO"
 
-            while (data_sent); // wait until sector data not sent
+            while (!data_sent); // wait until sector data of track is not completely sent
 
-            if( sector == 0 ) // initialize track data for next round
+            if( data_sent == 2 ) // initialize track data for next round
             {
-                side =(PINC & _BV(SIDE_SEL)) ? 0 : 1;// Current SIDE detect
-                
-                if (side != s_side || s_cylinder != cylinder)
-                { // if track or side changed we need to change offset in TRD file
-                    s_side = side; // current Floppy side                        
-                    s_cylinder = cylinder; // current Floppy cylinder
-                    track = s_cylinder * 2 + s_side; // track number
-                    curr_clust = clust_table[track]; // track first cluster in FAT32
-                    track_LBA = fat.database + (uint32_t)(curr_clust - 2) * fat.csize + ((track << 3) & csize_mod); // track start LBA number on SD card
-                }
                 // set initial values for current track
-                chain_index = 0;
-                chain_gen_index = 0;
-                fat.curr_clust = curr_clust;
-                fat.dsect = track_LBA;
-            }
-            
-            if((sector & 1) == 0)
-            {
-                if( sector != 0 && (((track << 3) + sector + 1) & csize_mod) == 0 )
-                { // on cluster boundary, get next cluster number and calculate LBA  ( only if cluster on SD card is less than 4k !!! )
-                    fat.curr_clust = cluster_chain[chain_index++];
-                    fat.dsect = fat.database + (fat.curr_clust - 2) * fat.csize;
-                }
+                s_side = (~(PINC & _BV(SIDE_SEL))) & 1; // current Floppy HEAD (side)
+                s_cylinder = cylinder; // current Floppy cylinder
+ 
+                //>>>>>> print "CYLINDER, HEAD INFO"
+
+                track = s_cylinder * 2 + s_side; // track number
+                fat.curr_clust = clust_table[track]; // track first cluster in FAT32
+                fat.dsect = fat.database + (fat.curr_clust - 2) * fat.csize + ((track << 3) & csize_mod); // track start LBA number on SD card
+                chain_index = chain_gen_index = 0;
                 card_read_sector(sector_data,fat.dsect++); // read 2 floppy sectors from SD card (1 SD card sector) and increase LBA
+                USART_enable(); // Enable DATA transmit interrupt
             }
-            else if(chain_size > (sector >> 1))
-            { // create cluster chain table when not reading sectors (for FAT32 clusters less then 4k)
-                cluster_chain[chain_gen_index] = (chain_gen_index == 0) ? get_fat(fat.curr_clust) : get_fat(cluster_chain[chain_gen_index-1]);
-                chain_gen_index++;
+            else
+            {
+                if((sector & 1) == 0)
+                {
+                    if( (((track << 3) + sector + 1) & csize_mod) == 0 )
+                    { // on cluster boundary, get next cluster number and calculate LBA  ( only if cluster on SD card is less than 4k !!! )
+                        fat.curr_clust = cluster_chain[chain_index++];
+                        fat.dsect = fat.database + (fat.curr_clust - 2) * fat.csize;
+                    }
+                    card_read_sector(sector_data,fat.dsect++); // read 2 floppy sectors from SD card (1 SD card sector) and increase LBA
+                }
+                else if(chain_size > (sector >> 1))
+                { // create cluster chain table when not reading sectors (for FAT32 clusters less then 4k)
+                    cluster_chain[chain_gen_index] = (chain_gen_index == 0) ? get_fat(fat.curr_clust) : get_fat(cluster_chain[chain_gen_index-1]);
+                    chain_gen_index++;
+                }
             }
-            
-            if(data_sent) {cli(); while(1);} // temporary check for speed errors
-            
-            // wait until sector data is ready to be sent
-            while(!data_sent);
+            if(!data_sent) {cli(); while(1);} // temporary check for speed errors
+                        
+            while(data_sent); // wait until sector data is start transmitting
         
         } while (!(PIND & _BV(MOTOR_ON))); // READ DATA SEND LOOP END
         //-------------------------------------------------------------------------------------------
     
-        // DISABLE INDERRUPTS (USART and STEP pin)
-        USART_disable();
-        INT0_disable();
+        
+        INT0_disable(); // DISABLE INDERRUPT (STEP pin)
 
         DDRD &= ~(_BV(WP) | _BV(TRK00)); // Set WP and TRK00 as input and HI-Z to not affect other floppies
 

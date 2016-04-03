@@ -137,22 +137,36 @@ CRESULT card_readp (
     { // receive block data
       cf = 512 + 2 - ofs - cnt;
 
-      while (ofs--) spiRead();    // Skip bytes before offset
+      while (ofs--) 
+      { // Skip bytes before offset
+        SPDR = 0xFF;
+        loop_until_bit_is_set(SPSR, SPIF);
+      }
 
       p = (uint8_t*)dest;
-      do *p++ = spiRead(); while (--cnt); // read data
+      do
+      {
+        SPDR = 0xFF;
+        loop_until_bit_is_set(SPSR, SPIF);
+        *p++ = SPDR;
+      } while (--cnt); // read data
 
-      do spiRead(); while (--cf);   // Skip rest of data and CRC
+      do {
+        SPDR = 0xFF;
+        loop_until_bit_is_set(SPSR, SPIF);
+      } while (--cf);   // Skip rest of data and CRC      
 
       res = cnt ? RES_STRERR : RES_OK;
     }
   }
 
   DESELECT();
-  spiRead();
+  SPDR = 0xFF;
+  loop_until_bit_is_set(SPSR, SPIF);
 
   return cnt ? RES_ERROR : RES_OK;
 }
+  
 
 /// Read full sector
 void card_read_sector (
@@ -176,14 +190,19 @@ void card_read_sector (
         SPDR = 0xFF;
         loop_until_bit_is_set(SPSR, SPIF);
         *p++ = SPDR;
-        if(++i == 0) rc--;
-      } while(rc != 0);
-      spiRead();
-      spiRead();
+        i++;
+        if(i == 0) rc--;
+      } while(rc != 0);      
+      // Skip CRC
+      SPDR = 0xFF;
+      loop_until_bit_is_set(SPSR, SPIF);
+      SPDR = 0xFF;
+      loop_until_bit_is_set(SPSR, SPIF);
     }
   }
 
   DESELECT();
-  spiRead();
+  SPDR = 0xFF;
+  loop_until_bit_is_set(SPSR, SPIF);
 }
 /// ----------------------------------------------------------------------------------------------------------------

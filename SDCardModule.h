@@ -15,7 +15,6 @@
 #define SELECT()  SPI_PORT &= ~_BV(SPI_CS) /* CS = L */
 #define DESELECT() SPI_PORT |=  _BV(SPI_CS) /* CS = H */
 
-
 typedef uint8_t  CSTATUS;
 
 /// Results of CARD Functions
