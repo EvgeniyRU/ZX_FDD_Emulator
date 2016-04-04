@@ -324,8 +324,8 @@ void emu_init()
 
   // INIT pins and ports
   // ALL OUTPUT PINS WORK IN HI-Z MODE!!! ALL INPUT PINS SHOULD BE WITH PULL UP!!!
-  PORTC |= _BV(DRIVE_SEL) | _BV(WRT_GATE) ; // set pull_up
-  PORTD |= _BV(STEP) | _BV(MOTOR_ON) | _BV(SIDE_SEL); // set pull-up
+  PORTC |= _BV(DRIVE_SEL) | _BV(SIDE_SEL) ; // set pull_up
+  PORTD |= _BV(STEP) | _BV(MOTOR_ON) | _BV(WRT_GATE); // set pull-up
   PORTB |= _BV(DIR_SEL); // set pull-up
   PORTD &= ~(_BV(WP) | _BV(TRK00) | _BV(INDEX)); // disable pullup for HI-Z mode on these pins
   
@@ -451,4 +451,5 @@ int main() {
   } // MAIN LOOP END
   
 } // END MAIN
+
 
