@@ -120,9 +120,9 @@ CRESULT card_readp (
 {
   CRESULT res;
   uint8_t *p, rc;
-  uint16_t cf;
 
-  if (!cnt || ofs + cnt > 512) return RES_PARERR; // wrong parameters
+  // commented as it is too much useless code
+  //if (!cnt || ofs + cnt > 512) return RES_PARERR; // wrong parameters
 
   if (!(CardType & CT_SDHC)) lba *= 512;    // SDHC - LBA = block number (512 bytes), other - LBA = byte offset
 
@@ -134,36 +134,24 @@ CRESULT card_readp (
     while( (rc = spiRead() ) == 0xFF ); // wait for CARD is ready to transmit block of data
 
     if (rc == 0xFE)
-    { // receive block data
-      cf = 512 + 2 - ofs - cnt;
-
-      while (ofs--) 
-      { // Skip bytes before offset
-        SPDR = 0xFF;
-        loop_until_bit_is_set(SPSR, SPIF);
-      }
-
+    { // receive data block 512 bytes + CRC
       p = (uint8_t*)dest;
-      do
+      for(uint16_t i = 0; i < 514; i++)
       {
         SPDR = 0xFF;
         loop_until_bit_is_set(SPSR, SPIF);
-        *p++ = SPDR;
-      } while (--cnt); // read data
-
-      do {
-        SPDR = 0xFF;
-        loop_until_bit_is_set(SPSR, SPIF);
-      } while (--cf);   // Skip rest of data and CRC      
-
-      res = cnt ? RES_STRERR : RES_OK;
+        if( i >= ofs && cnt != 0)
+        {
+            *p++ = SPDR;
+            cnt--;
+        }
+      }
     }
   }
 
   DESELECT();
-  SPDR = 0xFF;
-  loop_until_bit_is_set(SPSR, SPIF);
-
+  spiRead();
+  
   return cnt ? RES_ERROR : RES_OK;
 }
   
@@ -174,7 +162,7 @@ void card_read_sector (
   uint32_t lba     // Start sector number (LBA)
 )
 {
-  uint8_t *p , rc, i;
+  uint8_t *p , rc;
 
   if (!(CardType & CT_SDHC)) lba *= 512;    // SDHC - LBA = block number (512 bytes), other - LBA = byte offset
   
@@ -183,21 +171,14 @@ void card_read_sector (
     while( (rc = spiRead() ) == 0xFF ); // wait for CARD is ready to transmit block of data
     
     if (rc == 0xFE)
-    { // receive block data
+    { // receive data block + CRC
       p = (uint8_t*)dest;
-      i = 0, rc = 2;
-      do { // read 512 bytes
+      for(uint16_t i=0; i < 514; i++)
+      {
         SPDR = 0xFF;
         loop_until_bit_is_set(SPSR, SPIF);
-        *p++ = SPDR;
-        i++;
-        if(i == 0) rc--;
-      } while(rc != 0);      
-      // Skip CRC
-      SPDR = 0xFF;
-      loop_until_bit_is_set(SPSR, SPIF);
-      SPDR = 0xFF;
-      loop_until_bit_is_set(SPSR, SPIF);
+        if(i < 512) *p++ = SPDR;
+      }
     }
   }
 
