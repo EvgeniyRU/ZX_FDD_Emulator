@@ -8,6 +8,11 @@
 static uint8_t CardType;
 static uint8_t resp_buf[4];
 
+uint8_t getCardType()
+{
+    return CardType;
+}
+
 /// receive SPI byte
 static uint8_t spiRead()
 {
@@ -23,7 +28,7 @@ static void spiSend(uint8_t d)
 }
 
 // Send a command to CARD
-static uint8_t send_cmd(uint8_t cmd, uint32_t param, uint8_t cnt)
+uint8_t send_cmd(uint8_t cmd, uint32_t param, uint8_t cnt)
 {
   uint8_t i, res;
 

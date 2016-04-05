@@ -55,14 +55,10 @@ typedef enum {
 #define CMD55 (0x40+55) // APP_CMD
 #define CMD58 (0x40+58) // READ_OCR
 
-/// receive SPI byte
-static uint8_t spiRead();
-
-/// send SPI byte
-static void spiSend(uint8_t d);
+uint8_t getCardType();
 
 // Send a command to CARD
-static uint8_t send_cmd(uint8_t, uint32_t, uint8_t);
+uint8_t send_cmd(uint8_t, uint32_t, uint8_t);
 
 
 /// CARD Initialization
