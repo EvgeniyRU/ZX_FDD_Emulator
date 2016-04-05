@@ -33,9 +33,11 @@ uint32_t cluster_chain[4]; // max cluster chain 4 is for 1k cluster or less if h
 // 0-2    - TRACK HEADER
 // 4-9    - SECTOR
 // 10-11  - TRACK FOOTER
-uint8_t state, max_cylinder, max_track, prev_byte, second_byte, sector_even_odd, s_side, s_cylinder, sector_byte, sector, tmp, b_index, cylinder, track_changed;
+uint8_t state, max_cylinder, max_track, prev_byte, second_byte, sector_even_odd, s_side, s_cylinder, sector_byte, tmp, b_index, cylinder, track_changed;
 volatile uint8_t data_sent; // this is important!!!
 uint16_t CRC, CRC_tmp;
+
+register volatile uint8_t sector asm("r17");
 
 // inverted table for fast converting
 uint8_t MFM_tab_inv[32] = { 0x55,0x56,0x5B,0x5A,0x6D,0x6E,0x6B,0x6A,0xB5,0xB6,0xBB,0xBA,0xAD,0xAE,0xAB,0xAA,0xD5,0xD6,0xDB,0xDA,0xED,0xEE,0xEB,0xEA,0xB5,0xB6,0xBB,0xBA,0xAD,0xAE,0xAB,0xAA };
@@ -187,10 +189,10 @@ ISR(USART_UDRE_vect)
                 second_byte = 0x76; //inverted 0x89;
                 break;
 
-              case 15: data_sent = 0; break; /// very important!!!
-
               case 20: sector_header[20] = (byte)(CRC >> 8); break;
               case 21: sector_header[21] = (byte)CRC; break;
+
+              case 22: data_sent = 0; break; /// very important!!!
 
               case 41: sector_even_odd = sector & 1; break;
               case 42: CRC = 0xE295; break; // START GENERATING CRC HERE, PRE-CALC value for A1,A1,A1,FB = 0xE295 next CRC value
@@ -239,7 +241,7 @@ ISR(USART_UDRE_vect)
 
           case 9:
             b_index++;
-            if (b_index != 82) break; // 56 in FDD, increased for stability!!!
+            if (b_index != 56) break; // 56 in FDD, increased for stability!!!
             if (sector != 16)
             {
                 state = 4;
@@ -356,18 +358,20 @@ int main() {
         /// MAIN LOOP USED FOR SELECT and INIT SD CARD and other
       
         //>>>>>> print "NO CARD PRESENT"
-        while(pf_mount(&fat) != FR_OK);   
+        while(pf_mount(&fat) != FR_OK);
         //>>>>>> print "CARD INFO, TRD IMAGE NAME"
 
+        byte sdhc = getCardType() & CT_SDHC;
         uint8_t chained = fat.csize < 8;
         uint8_t clusters_per_track = 8 / fat.csize;
-        uint8_t tracks_per_cluster = fat.csize / 8;
+        uint8_t tracks_per_cluster = fat.csize / 8;        
 
         while (1)
         { /// DRIVE SELECT LOOP
 
             uint8_t chain_index, track, csize_mod = fat.csize-1;
             uint16_t track_sect;
+            uint32_t lba;
 
             while ( (PIND & _BV(MOTOR_ON)) || (PINC & _BV(DRIVE_SEL))); // wait drive select && motor_on
 
@@ -425,7 +429,19 @@ int main() {
                     }
                     //>>>>>> print "CYLINDER, HEAD INFO" or track number
 
-                    card_read_sector(sector_data,fat.dsect++); // read 2 floppy sectors from SD card (1 SD card sector) and increase LBA
+                    //card_read_sector(sector_data,fat.dsect++); // read 2 floppy sectors from SD card (1 SD card sector) and increase LBA
+                    lba = fat.dsect++;
+                    if (!sdhc) lba <<= 9;    // SDHC - LBA = block number (512 bytes), other - LBA = byte offset
+                    send_cmd(CMD17, lba, 0);
+                    do {
+                       SPDR = 0xFF;
+                       loop_until_bit_is_set(SPSR, SPIF);                          
+                    } while(SPDR == 0xFF);
+                    uint8_t i = 0;
+                    do { SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF); sector_data[0][i++]=SPDR; } while(i!=0);
+                    do { SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF); sector_data[1][i++]=SPDR; } while(i!=0);
+                    DESELECT();
+                    
                     state = b_index = sector = prev_byte = second_byte = tmp = 0;
 
                     if(track_changed) { track_changed = 0; goto REPEAT; }
@@ -441,7 +457,18 @@ int main() {
                         if( chained && ((track_sect + sector + 1) & csize_mod) == 0 ) // on cluster boundary, get next cluster number and calculate LBA  ( only if cluster on SD card is less than 4k !!! )
                             fat.dsect = fat.database + cluster_chain[chain_index++] * fat.csize;
 
-                        card_read_sector(sector_data,fat.dsect++); // read 2 floppy sectors from SD card (1 SD card sector) and increase LBA
+                        //card_read_sector(sector_data,fat.dsect++); // read 2 floppy sectors from SD card (1 SD card sector) and increase LBA
+                        lba = fat.dsect++;
+                        if (!sdhc) lba <<= 9;    // SDHC - LBA = block number (512 bytes), other - LBA = byte offset
+                        send_cmd(CMD17, lba, 0);
+                        do {
+                            SPDR = 0xFF;
+                            loop_until_bit_is_set(SPSR, SPIF);                          
+                        } while(SPDR == 0xFF);
+                        uint8_t i = 0;
+                        do { SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF); sector_data[0][i++]=SPDR; } while(i!=0);
+                        do { SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF); sector_data[1][i++]=SPDR; } while(i!=0);
+                        DESELECT();
                     }
                 }                        
             
@@ -460,4 +487,5 @@ int main() {
     } // MAIN LOOP END
   
 } // END MAIN
+
 
