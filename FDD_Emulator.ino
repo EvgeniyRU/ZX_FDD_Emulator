@@ -33,11 +33,9 @@ uint32_t cluster_chain[4]; // max cluster chain 4 is for 1k cluster or less if h
 // 0-2    - TRACK HEADER
 // 4-9    - SECTOR
 // 10-11  - TRACK FOOTER
-uint8_t state, max_cylinder, max_track, prev_byte, second_byte, sector_even_odd, s_side, s_cylinder, sector_byte, tmp, b_index, cylinder, track_changed;
+uint8_t state, max_cylinder, max_track, prev_byte, second_byte, sector_even_odd, s_side, s_cylinder, sector_byte, tmp, b_index, cylinder, track_changed, sector;
 volatile uint8_t data_sent; // this is important!!!
 uint16_t CRC, CRC_tmp;
-
-register volatile uint8_t sector asm("r17");
 
 // inverted table for fast converting
 uint8_t MFM_tab_inv[32] = { 0x55,0x56,0x5B,0x5A,0x6D,0x6E,0x6B,0x6A,0xB5,0xB6,0xBB,0xBA,0xAD,0xAE,0xAB,0xAA,0xD5,0xD6,0xDB,0xDA,0xED,0xEE,0xEB,0xEA,0xB5,0xB6,0xBB,0xBA,0xAD,0xAE,0xAB,0xAA };
@@ -387,19 +385,41 @@ int main() {
             max_track = (fat.fsize/4096 < MAX_TRACK)?fat.fsize/4096:MAX_TRACK; // calculate maximal cylinder
             max_cylinder = max_track / 2; // calculate maximal cylinder
 
-            ///create cluster table for tracks
+            /// FAST!!! create cluster table for tracks ----------------------------------------------------------------------------------------
             clust_table[0] = fat.org_clust;
+            uint32_t cur_fat, cur_fat_sector = fat.org_clust >> 7;
+            card_read_sector(sector_data, fat.fatbase + cur_fat_sector); // read data_block with start cluster number            
             for(uint8_t i = 1; i < max_track; i++) 
             {
-                uint32_t cur_fat = clust_table[i-1];
+                cur_fat = clust_table[i-1];
+                                
                 if(tracks_per_cluster == 0)
-                    for(uint8_t k = 0; k < clusters_per_track; k++) cur_fat = get_fat(cur_fat);
+                {
+                    for(uint8_t k = 0; k < clusters_per_track; k++)
+                    {
+                        if( (cur_fat >> 7) != cur_fat_sector )
+                        {
+                            cur_fat_sector = cur_fat >> 7;
+                            card_read_sector(sector_data, fat.fatbase + cur_fat_sector); // read data_block with current cluster number
+                        }
+                        cur_fat = (uint32_t)(*(uint32_t*)(&sector_data[0][0] + ((uint8_t)cur_fat & 127) * 4));
+                    }
+                }
                 else
-                    if( i % tracks_per_cluster == 0) cur_fat = get_fat(cur_fat);
+                {
+                    if( i % tracks_per_cluster == 0)
+                    {
+                        if( (cur_fat >> 7) != cur_fat_sector )
+                        {
+                            cur_fat_sector = cur_fat >> 7;
+                            card_read_sector(sector_data, fat.fatbase + cur_fat_sector); // read data_block with current cluster number
+                        }
+                        cur_fat = (uint32_t)(*(uint32_t*)(&sector_data[0][0] + ((uint8_t)cur_fat & 127) * 4));
+                    }
+                }   
                 clust_table[i] = cur_fat;
-            }
-
-            
+            } // --------------------------------------------------------------------------------------------------------------------------------
+                        
             INT0_enable(); // ENABLE INDERRUPT (STEP pin)
 
             // update values for current track
