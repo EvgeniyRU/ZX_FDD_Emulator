@@ -21,7 +21,7 @@ FATFS fat;
 
 /// EMULATOR START -------------------------------------------------------------------------------------------------
 
-#define MAX_CYL 86          /// maximal cylinder supported by FDD
+#define MAX_CYL 84          /// maximal cylinder supported by FDD
 #define MAX_TRACK MAX_CYL*2 /// maximal track
 
 uint8_t sector_header[64]; // sector header
@@ -33,7 +33,7 @@ uint32_t cluster_chain[4]; // max cluster chain 4 is for 1k cluster or less if h
 // 0-2    - TRACK HEADER
 // 4-9    - SECTOR
 // 10-11  - TRACK FOOTER
-uint8_t state, max_cylinder, max_track, prev_byte, second_byte, sector_even_odd, s_side, s_cylinder, sector_byte, tmp, b_index, cylinder, track_changed, sector;
+uint8_t state, max_cylinder, max_track, second_byte, sector_even_odd, s_side, s_cylinder, sector_byte, tmp, b_index, cylinder, track_changed, sector;
 volatile uint8_t data_sent; // this is important!!!
 uint16_t CRC, CRC_tmp;
 
@@ -95,7 +95,7 @@ ISR(INT0_vect)
         if(cylinder > 0) cylinder--;
     }
     else
-        if(cylinder != max_cylinder) cylinder++;
+        if(cylinder < max_cylinder) cylinder++;
 
     USART_disable();
     PORTD |= _BV(INDEX); // Set INDEX - HIGH it may be LOW in USART interrupt
@@ -109,8 +109,16 @@ ISR(INT0_vect)
 ///////////////////////////////////////////
 ISR(USART_UDRE_vect)
 { 
-    if (!tmp) // it is ok, as MFM_tab doesn't have zero values
-    {       
+    if (tmp == 0)
+    { // Send first MFM byte
+        UDR0 = MFM_tab_inv[sector_byte >> 4];  // put byte to send buffer
+        tmp = 1;
+    }
+    else
+    { // Send second MFM byte
+        UDR0 = second_byte ? second_byte : MFM_tab_inv[sector_byte & 0x1f];
+        tmp = 0; // this is important!
+
         // GET NEXT DATA BYTE (REAL DATA NOT MFM)
         switch (state)
         {
@@ -122,7 +130,7 @@ ISR(USART_UDRE_vect)
             break;
       
           case 1: // send track header ------------------------------------------
-            if (++b_index != 80) break; // 80 in FDD
+            if (b_index++ != 80) break; // 80 in FDD
             state = 2;
             b_index = 0;            
             break;
@@ -139,7 +147,7 @@ ISR(USART_UDRE_vect)
                   second_byte = 0xDB; // inverted 0x24;
                   break;            
                 
-                case 15: sector_byte = 0xFC; break;            
+                case 15: second_byte = 0; sector_byte = 0xFC; break;            
                 
                 case 16: sector_byte = 0x4E;
                   b_index = 1;
@@ -187,6 +195,8 @@ ISR(USART_UDRE_vect)
                 second_byte = 0x76; //inverted 0x89;
                 break;
 
+              case 15: second_byte = 0; break;
+
               case 20: sector_header[20] = (byte)(CRC >> 8); break;
               case 21: sector_header[21] = (byte)CRC; break;
 
@@ -200,6 +210,8 @@ ISR(USART_UDRE_vect)
               case 58:
                 second_byte = 0x76; //inverted 0x89;
                 break;
+
+              case 59: second_byte = 0; break;
             }
             // send sector bytes before data
             sector_byte = sector_header[b_index];   // pre-get new byte from buffer
@@ -262,27 +274,11 @@ ISR(USART_UDRE_vect)
 
         } // GET DATA BYTE END
 
-        tmp = MFM_tab_inv[sector_byte >> 4]; // get first MFM byte from table
-        if(prev_byte && !(sector_byte & 0x80)) tmp |= 0x80;    
-        UDR0 = tmp;  // put byte to send buffer
-    }
-    else
-    { // Send second MFM byte
-        prev_byte = sector_byte & 1;
-
-        if (second_byte)
-        {
-            UDR0 = second_byte; // put byte to send buffer
-            second_byte = 0;
-        }
-        else
-            UDR0 = MFM_tab_inv[sector_byte & 0x1f]; // put byte to send buffer 
-    
-        tmp = 0; // this is important!
     }
 
     ISR_END:;
 }
+
 
 ///
 /// Prepare sector header template
@@ -299,8 +295,8 @@ void prepare_sector_header()
     sector_header[17] = 0x00;         // 0x11(17) side
     sector_header[18] = 0x01;         // 0x12(18) sector
     sector_header[19] = 0x01;         // 0x13(19) sector len (256 bytes)
-    sector_header[20] = 0xFA;         // 0x14(20) CRC1 for trk=0, side=0, sector=1
-    sector_header[21] = 0x0C;         // 0x15(21) CRC2
+    sector_header[20] = 0x00;         // 0x14(20) CRC1
+    sector_header[21] = 0x00;         // 0x15(21) CRC2
     // GAP 2
     for(i=22; i <= 43; i++) sector_header[i] = 0x4E; // 0x16(22)-0x2B
     // DATA field
@@ -449,23 +445,13 @@ int main() {
                     }
                     //>>>>>> print "CYLINDER, HEAD INFO" or track number
 
-                    //card_read_sector(sector_data,fat.dsect++); // read 2 floppy sectors from SD card (1 SD card sector) and increase LBA
-                    lba = fat.dsect++;
-                    if (!sdhc) lba <<= 9;    // SDHC - LBA = block number (512 bytes), other - LBA = byte offset
-                    send_cmd(CMD17, lba, 0);
-                    do {
-                       SPDR = 0xFF;
-                       loop_until_bit_is_set(SPSR, SPIF);                          
-                    } while(SPDR == 0xFF);
-                    uint8_t i = 0;
-                    do { SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF); sector_data[0][i++]=SPDR; } while(i!=0);
-                    do { SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF); sector_data[1][i++]=SPDR; } while(i!=0);
-                    DESELECT();
+                    card_read_sector(sector_data,fat.dsect++); // read 2 floppy sectors from SD card (1 SD card sector) and increase LBA
                     
-                    state = b_index = sector = prev_byte = second_byte = tmp = 0;
+                    state = b_index = sector = second_byte = tmp = 0;
 
                     if(track_changed) { track_changed = 0; goto REPEAT; }
-
+                    
+                    sector_byte = 0x4E;
                     USART_enable(); // Enable DATA transmit interrupt
                     data_sent = 0;
                     goto REPEAT;
