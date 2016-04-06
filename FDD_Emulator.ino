@@ -38,7 +38,7 @@ volatile uint8_t data_sent; // this is important!!!
 uint16_t CRC, CRC_tmp;
 
 // inverted table for fast converting
-uint8_t MFM_tab_inv[32] = { 0x55,0x56,0x5B,0x5A,0x6D,0x6E,0x6B,0x6A,0xB5,0xB6,0xBB,0xBA,0xAD,0xAE,0xAB,0xAA,0xD5,0xD6,0xDB,0xDA,0xED,0xEE,0xEB,0xEA,0xB5,0xB6,0xBB,0xBA,0xAD,0xAE,0xAB,0xAA };
+uint8_t MFM_tab_inv[16] = {0x55,0x56,0x59,0x5A,0x65,0x66,0x69,0x6A,0x95,0x96,0x99,0x9A,0xA5,0xA6,0xA9,0xAA};
 
 const uint16_t Crc16Table[256] PROGMEM = {
     0x0000, 0x1021, 0x2042, 0x3063, 0x4084, 0x50A5, 0x60C6, 0x70E7,
@@ -116,7 +116,7 @@ ISR(USART_UDRE_vect)
     }
     else
     { // Send second MFM byte
-        UDR0 = second_byte ? second_byte : MFM_tab_inv[sector_byte & 0x1f];
+        UDR0 = second_byte ? second_byte : MFM_tab_inv[sector_byte & 0x0f];
         tmp = 0; // this is important!
 
         // GET NEXT DATA BYTE (REAL DATA NOT MFM)
@@ -270,7 +270,7 @@ ISR(USART_UDRE_vect)
             if (++b_index != 200) break; // > 500 in FDD
             USART_disable();
             data_sent = 2; // set flag indicates end of track, for reinitialize track data and read new sectors
-            goto ISR_END;            
+            break;
 
         } // GET DATA BYTE END
 
@@ -376,12 +376,12 @@ int main() {
             /////////////////////////////////////////////////////////////////
             // INIT after drive selected
             
-            if(pf_open("default.trd") != FR_OK) break;
+            if(pf_open("default.trd") != FR_OK) break; // if unable to open file, usually if SD card is removed
 
             max_track = (fat.fsize/4096 < MAX_TRACK)?fat.fsize/4096:MAX_TRACK; // calculate maximal cylinder
             max_cylinder = max_track / 2; // calculate maximal cylinder
 
-            /// FAST!!! create cluster table for tracks ----------------------------------------------------------------------------------------
+            /// FAST create cluster table for tracks ----------------------------------------------------------------------------------------
             clust_table[0] = fat.org_clust;
             uint32_t cur_fat, cur_fat_sector = fat.org_clust >> 7;
             card_read_sector(sector_data, fat.fatbase + cur_fat_sector); // read data_block with start cluster number            
@@ -464,6 +464,7 @@ int main() {
                             fat.dsect = fat.database + cluster_chain[chain_index++] * fat.csize;
 
                         //card_read_sector(sector_data,fat.dsect++); // read 2 floppy sectors from SD card (1 SD card sector) and increase LBA
+                        // FAST card sector loading
                         lba = fat.dsect++;
                         if (!sdhc) lba <<= 9;    // SDHC - LBA = block number (512 bytes), other - LBA = byte offset
                         send_cmd(CMD17, lba, 0);
