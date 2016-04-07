@@ -1,5 +1,7 @@
 // ZX-Spectrum FDD Emulator
 //
+// Current version opens file "default.trd" from SD Card root folder and use it to emulate floppy disk
+//
 #define SIDE_SEL  PC0   // pin A0, SIDE SELECT                                  (INPUT)
 #define DRIVE_SEL PC1   // pin A1, DRIVE SELECT CONNECT DS0-DS3 using jumper    (INPUT)
 
@@ -33,16 +35,10 @@ uint32_t cluster_chain[4]; // max cluster chain 4 is for 1k cluster or less if h
 // 0-2    - TRACK HEADER
 // 4-9    - SECTOR
 // 10-11  - TRACK FOOTER
-uint8_t state, max_cylinder, max_track, second_byte, sector_even_odd, s_side, s_cylinder, sector_byte, tmp, b_index, cylinder, track_changed, sector;
+uint8_t state, max_cylinder, max_track, second_byte, sector_byte, tmp, b_index, cylinder, track_changed, sector;
 volatile uint8_t data_sent; // this is important!!!
 uint16_t CRC_tmp;
-union {
-  uint16_t val;
-  struct {
-    byte low;
-    byte high;
-  } bytes;
-} CRC;
+union { uint16_t val; struct { byte low; byte high; } bytes; } CRC;
 
 // inverted table for fast converting
 uint8_t MFM_tab_inv[16] = {0x55,0x56,0x59,0x5A,0x65,0x66,0x69,0x6A,0x95,0x96,0x99,0x9A,0xA5,0xA6,0xA9,0xAA};
@@ -177,7 +173,6 @@ ISR(USART_UDRE_vect)
             {
               case 0:
                 // THE BEST SOLUTION!!! If side is changed during track tranmition we restart the track.
-                sector_header[17] = s_side;
                 if ((PINC & 1) == sector_header[17]) // WARNING!!! SIDE_SEL pin used!!!
                 {
                     USART_disable();
@@ -186,16 +181,17 @@ ISR(USART_UDRE_vect)
                 }
                 break;             
 
-              case 1: CRC.val = 0xB230; sector_header[16] = s_cylinder; break;
+              // Address field CRC Calculation
+              case 1: CRC.val = 0xB230; break;
               case 2: CRC_tmp = pgm_read_word_near(Crc16Table + (CRC.bytes.high ^ sector_header[16])); break;
-              case 3: CRC.val = (CRC.bytes.low*256) ^ CRC_tmp; break;
+              case 3: CRC.val = (CRC.bytes.low * 256) ^ CRC_tmp; break;
               case 4: CRC_tmp = pgm_read_word_near(Crc16Table + (CRC.bytes.high ^ sector_header[17])); break;
-              case 5: CRC.val = (CRC.bytes.low*256) ^ CRC_tmp; break;
+              case 5: CRC.val = (CRC.bytes.low * 256) ^ CRC_tmp; break;
               case 6: sector_header[18] = sector + 1; break;
-              case 7: CRC_tmp = pgm_read_word_near(Crc16Table + (CRC.bytes.high ^ (sector + 1))); break;
-              case 8: CRC.val = (CRC.bytes.low*256) ^ CRC_tmp; break;
+              case 7: CRC_tmp = pgm_read_word_near(Crc16Table + (CRC.bytes.high ^ sector_header[18])); break;
+              case 8: CRC.val = (CRC.bytes.low * 256) ^ CRC_tmp; break;
               case 9: CRC_tmp = pgm_read_word_near(Crc16Table + (CRC.bytes.high ^ 1)); break;
-              case 10: CRC.val = (CRC.bytes.low*256) ^ CRC_tmp; break;
+              case 10: CRC.val = (CRC.bytes.low * 256) ^ CRC_tmp; break;
                                                         
               case 12:
               case 13:
@@ -210,7 +206,6 @@ ISR(USART_UDRE_vect)
 
               case 22: data_sent = 0; break; /// very important!!!
 
-              case 41: sector_even_odd = sector & 1; break;
               case 42: CRC.val = 0xE295; break; // START GENERATING CRC HERE, PRE-CALC value for A1,A1,A1,FB = 0xE295 next CRC value
 
               case 56:
@@ -231,7 +226,7 @@ ISR(USART_UDRE_vect)
           }
           case 5: // DATA FIELD ----------------------------------------------------        
             // get sector data values
-            sector_byte = sector_data[sector_even_odd][b_index++];   // pre-get new byte from buffer
+            sector_byte = sector_data[sector % 2][b_index++];   // pre-get new byte from buffer
             CRC.val = (CRC.bytes.low * 256) ^ pgm_read_word_near(Crc16Table + (CRC.bytes.high ^ sector_byte));
             if (b_index != 0) break;
             state = 6;
@@ -350,7 +345,7 @@ int main() {
         while (1)
         { /// DRIVE SELECT LOOP
 
-            uint8_t chain_index, track, csize_mod = fat.csize-1;
+            uint8_t chain_index, track;
             union {
                 uint16_t val;
                 struct {
@@ -375,7 +370,7 @@ int main() {
 
             /// FAST create cluster table for tracks ----------------------------------------------------------------------------------------
             clust_table[0] = fat.org_clust;
-            uint32_t cur_fat, cur_fat_sector = fat.org_clust >> 7;
+            uint32_t cur_fat, cur_fat_sector = fat.org_clust / 128;
             card_read_sector(sector_data, fat.fatbase + cur_fat_sector); // read data_block with start cluster number            
             for(uint8_t i = 1; i < max_track; i++) 
             {
@@ -387,10 +382,10 @@ int main() {
                     {
                         if( (cur_fat >> 7) != cur_fat_sector )
                         {
-                            cur_fat_sector = cur_fat >> 7;
+                            cur_fat_sector = cur_fat / 128;
                             card_read_sector(sector_data, fat.fatbase + cur_fat_sector); // read data_block with current cluster number
                         }
-                        cur_fat = (uint32_t)(*(uint32_t*)(&sector_data[0][0] + ((uint8_t)cur_fat & 127) * 4));
+                        cur_fat = (uint32_t)(*(uint32_t*)(&sector_data[0][0] + ((uint8_t)cur_fat % 128) * 4));
                     }
                 }
                 else
@@ -399,10 +394,10 @@ int main() {
                     {
                         if( (cur_fat >> 7) != cur_fat_sector )
                         {
-                            cur_fat_sector = cur_fat >> 7;
+                            cur_fat_sector = cur_fat / 128;
                             card_read_sector(sector_data, fat.fatbase + cur_fat_sector); // read data_block with current cluster number
                         }
-                        cur_fat = (uint32_t)(*(uint32_t*)(&sector_data[0][0] + ((uint8_t)cur_fat & 127) * 4));
+                        cur_fat = (uint32_t)(*(uint32_t*)(&sector_data[0][0] + ((uint8_t)cur_fat % 128) * 4));
                     }
                 }   
                 clust_table[i] = cur_fat;
@@ -411,7 +406,7 @@ int main() {
             INT0_enable(); // ENABLE INDERRUPT (STEP pin)
 
             // update values for current track
-            s_cylinder = cylinder = track_changed = 0;
+            cylinder = track_changed = 0;
             data_sent = 2;
         
             do { // READ DATA SEND LOOP (send data from FDD to FDD controller)  
@@ -422,12 +417,12 @@ int main() {
                 if( data_sent == 2 ) // initialize track data for next round
                 {
                     // set initial values for current track
-                    s_cylinder = cylinder; // current Floppy cylinder
-                    if(s_cylinder == 0) DDRD |= _BV(TRK00); else DDRD &= ~_BV(TRK00); // Set TRK00 Low or HI-Z
-                    s_side = PINC & _BV(SIDE_SEL) ? 0 : 1;
-                    track = s_cylinder * 2 + s_side; // track number
+                    sector_header[16] = cylinder;  // current Floppy cylinder
+                    if(sector_header[16] == 0) DDRD |= _BV(TRK00); else DDRD &= ~_BV(TRK00); // Set TRK00 Low or HI-Z
+                    sector_header[17] = PINC & _BV(SIDE_SEL) ? 0 : 1;
+                    track = sector_header[16] * 2 + sector_header[17]; // track number
                     track_sect.val = track * 8;
-                    fat.dsect = fat.database + (clust_table[track] - 2) * fat.csize + (track_sect.bytes.low & csize_mod); // track start LBA number on SD card
+                    fat.dsect = fat.database + (clust_table[track] - 2) * fat.csize + (track_sect.bytes.low % fat.csize); // track start LBA number on SD card
                     //track_sect++;
 
                     if(chained)
@@ -451,12 +446,12 @@ int main() {
                 }
                 else
                 {
-                    if( chained && ((track_sect.bytes.low + sector/2) & csize_mod) == 0 ) // on cluster boundary, get next cluster number and calculate LBA  ( only if cluster on SD card is less than 4k !!! )
+                    if( chained && ((track_sect.bytes.low + sector/2) % fat.csize) == 0 ) // on cluster boundary, get next cluster number and calculate LBA  ( only if cluster on SD card is less than 4k !!! )
                         fat.dsect = fat.database + (cluster_chain[chain_index++]-2) * fat.csize;
 
                     // FAST SD card sector loading (read 2 floppy sectors and increase LBA)
                     uint32_t lba = fat.dsect++;
-                    if (!sdhc) lba <<= 9;    // SDHC - LBA = block number (512 bytes), other - LBA = byte offset
+                    if (!sdhc) lba *= 512;    // SDHC - LBA = block number (512 bytes), other - LBA = byte offset
                     send_cmd(CMD17, lba, 0);
                     do { SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF); } while(SPDR == 0xFF);
                     uint8_t i = 0;
