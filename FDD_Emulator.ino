@@ -79,8 +79,9 @@ const uint16_t Crc16Table[256] PROGMEM = {
 ///
 /// Interrupts enable/disable functions
 ///////////////////////////////////////////
-void inline USART_enable() { UCSR0B |= 0x20; }
-void inline USART_disable() { UCSR0B &= ~0x20; }
+void inline USART_enable_TX() { UCSR0B |= 0x28; }
+void inline USART_enable_RX() { UCSR0B |= 0x30; }
+void inline USART_disable() { UCSR0B = 0x00; }
 void inline INT0_enable() { EIMSK |= 0x01; }
 void inline INT0_disable() { EIMSK &= ~0x01; }
 
@@ -221,7 +222,7 @@ ISR(USART_UDRE_vect)
             state = 5;            
             break;
           }
-          case 5: // DATA FIELD -------------------------------------------------        
+          case 5: // DATA FIELD ----------------------------------------------------        
             // get sector data values
             sector_byte = sector_data[sector_even_odd][b_index++];   // pre-get new byte from buffer
             CRC = (CRC << 8) ^ pgm_read_word_near(Crc16Table + ((CRC >> 8) ^ sector_byte));
@@ -229,12 +230,8 @@ ISR(USART_UDRE_vect)
             state = 6;
             break;
         
-          case 6: // SECTOR CRC ----------------------------------------------------
-            if (sector < 16)
-            {
-              sector++; // increase sector
-              if(sector != 16) data_sent = 1;  // reset flag indicates end of sector, for reading new sectors
-            }            
+          case 6: // SEND SECTOR CRC -----------------------------------------------
+            if(++sector != 16) data_sent = 1;  // increase sector, reset flag indicates end of sector, for reading new sectors
             sector_byte = (uint8_t)(CRC >> 8);
             state = 7;
             break;
@@ -250,8 +247,7 @@ ISR(USART_UDRE_vect)
             break;      
 
           case 9:
-            b_index++;
-            if (b_index != 56) break; // 56 in FDD, increased for stability!!!
+            if (++b_index != 56) break; // 56 in FDD, increased for stability!!!
             if (sector != 16)
             {
                 state = 4;
@@ -280,45 +276,27 @@ ISR(USART_UDRE_vect)
 }
 
 
-///
-/// Prepare sector header template
-///////////////////////////////////////////
-void prepare_sector_header()
-{
-    // Address field
-    byte i;
-    for(i=0; i <= 11; i++) sector_header[i] = 0x00; // 0x00(0)-0x0B(11) sync field
-    for(i=12; i <= 14; i++) sector_header[i] = 0xA1; // 0x0C(12)-0x0E(14) 3x0xA1
-    sector_header[15] = 0xFE;         // 0x0F(15) 0xFE
-    // cylinder, SIDE, SECTOR
-    sector_header[16] = 0x00;         // 0x10(16) cylinder
-    sector_header[17] = 0x00;         // 0x11(17) side
-    sector_header[18] = 0x01;         // 0x12(18) sector
-    sector_header[19] = 0x01;         // 0x13(19) sector len (256 bytes)
-    sector_header[20] = 0x00;         // 0x14(20) CRC1
-    sector_header[21] = 0x00;         // 0x15(21) CRC2
-    // GAP 2
-    for(i=22; i <= 43; i++) sector_header[i] = 0x4E; // 0x16(22)-0x2B
-    // DATA field
-    for(i=44; i <= 55; i++) sector_header[i] = 0x00; // 0x2C(44)-0x37 sync field
-    for(i=56; i <= 58; i++) sector_header[i] = 0xA1; // 0x38(56)-0x3A
-    sector_header[59] = 0xFB;         // 0x3B(59)
-}
-
 /// FDD Emulator initialization
 ///////////////////////////////////////////
 void emu_init()
 {
     cli(); // DISABLE GLOBAL INTERRUPTS
 
-    prepare_sector_header();
+    // sector header generation
+    memset(&sector_header[0x00],0x00,60);   // 0x00(0)-0x0B(11) sync field    
+    memset(&sector_header[0x0C],0xA1,3);    // 0x0C(12)-0x0E(14) 3x0xA1
+    sector_header[0x0F] = 0xFE;             // 0x0F(15) 0xFE
+    sector_header[0x13] = 0x01;             // 0x13(19) sector len (256 bytes)
+    memset(&sector_header[0x16],0x4E,22);   // 0x16(22)-0x2B
+    memset(&sector_header[0x38],0xA1,3);    // 0x38(56)-0x3A
+    sector_header[0x3B] = 0xFB;             // 0x3B(59)
 
     // Setup USART in MasterSPI mode 500000bps
     UBRR0H = 0x00;
     UBRR0L = 0x0F; // 500 kbps
     UCSR0C = 0xC0;
     UCSR0A = 0x00;
-    UCSR0B = 0x08; // disabled
+    UCSR0B = 0x00; // disabled
 
     //INIT INT0 interrupt
     EICRA = 0x03; // INT0 (falling edge=0x02, rising edge=0x03)
@@ -364,8 +342,7 @@ int main() {
         { /// DRIVE SELECT LOOP
 
             uint8_t chain_index, track, csize_mod = fat.csize-1;
-            uint16_t track_sect;
-            uint32_t lba;
+            uint16_t track_sect;            
 
             while ( (PIND & _BV(MOTOR_ON)) || (PINC & _BV(DRIVE_SEL))); // wait drive select && motor_on
 
@@ -439,8 +416,8 @@ int main() {
 
                     if(chained)
                     { // prepare cluster chain if cluster is less 4K
-                        cluster_chain[0] = get_fat(clust_table[track]) - 2;
-                        for(chain_index = 1; chain_index < clusters_per_track; chain_index++) cluster_chain[chain_index] = get_fat(cluster_chain[chain_index-1] + 2) - 2;
+                        cluster_chain[0] = get_fat(clust_table[track]);
+                        for(chain_index = 1; chain_index < clusters_per_track; chain_index++) cluster_chain[chain_index] = get_fat(cluster_chain[chain_index-1]);
                         chain_index = 0;
                     }
                     //>>>>>> print "CYLINDER, HEAD INFO" or track number
@@ -452,20 +429,18 @@ int main() {
                     if(track_changed) { track_changed = 0; goto REPEAT; }
                     
                     sector_byte = 0x4E;
-                    USART_enable(); // Enable DATA transmit interrupt
                     data_sent = 0;
-                    goto REPEAT;
+                    USART_enable_TX(); // Enable DATA transmit interrupt                    
                 }
                 else
                 {
                     if((sector & 1) == 0)
                     {
                         if( chained && ((track_sect + sector + 1) & csize_mod) == 0 ) // on cluster boundary, get next cluster number and calculate LBA  ( only if cluster on SD card is less than 4k !!! )
-                            fat.dsect = fat.database + cluster_chain[chain_index++] * fat.csize;
+                            fat.dsect = fat.database + (cluster_chain[chain_index++]-2) * fat.csize;
 
-                        //card_read_sector(sector_data,fat.dsect++); // read 2 floppy sectors from SD card (1 SD card sector) and increase LBA
-                        // FAST card sector loading
-                        lba = fat.dsect++;
+                        // FAST SD card sector loading (read 2 floppy sectors and increase LBA)
+                        uint32_t lba = fat.dsect++;
                         if (!sdhc) lba <<= 9;    // SDHC - LBA = block number (512 bytes), other - LBA = byte offset
                         send_cmd(CMD17, lba, 0);
                         do {
