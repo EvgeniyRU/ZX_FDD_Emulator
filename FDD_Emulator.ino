@@ -35,7 +35,14 @@ uint32_t cluster_chain[4]; // max cluster chain 4 is for 1k cluster or less if h
 // 10-11  - TRACK FOOTER
 uint8_t state, max_cylinder, max_track, second_byte, sector_even_odd, s_side, s_cylinder, sector_byte, tmp, b_index, cylinder, track_changed, sector;
 volatile uint8_t data_sent; // this is important!!!
-uint16_t CRC, CRC_tmp;
+uint16_t CRC_tmp;
+union {
+  uint16_t val;
+  struct {
+    byte low;
+    byte high;
+  } bytes;
+} CRC;
 
 // inverted table for fast converting
 uint8_t MFM_tab_inv[16] = {0x55,0x56,0x59,0x5A,0x65,0x66,0x69,0x6A,0x95,0x96,0x99,0x9A,0xA5,0xA6,0xA9,0xAA};
@@ -169,7 +176,7 @@ ISR(USART_UDRE_vect)
             switch(b_index)
             {
               case 0:
-                // THE BEST SOLUTION!!! :)
+                // THE BEST SOLUTION!!! If side is changed during track tranmition we restart the track.
                 sector_header[17] = s_side;
                 if ((PINC & 1) == sector_header[17]) // WARNING!!! SIDE_SEL pin used!!!
                 {
@@ -179,16 +186,16 @@ ISR(USART_UDRE_vect)
                 }
                 break;             
 
-              case 1: CRC = 0xB230; sector_header[16] = s_cylinder; break;
-              case 2: CRC_tmp = pgm_read_word_near(Crc16Table + ((CRC >> 8) ^ sector_header[16])); break;
-              case 3: CRC = (CRC << 8) ^ CRC_tmp; break;
-              case 4: CRC_tmp = pgm_read_word_near(Crc16Table + ((CRC >> 8) ^ sector_header[17])); break;
-              case 5: CRC = (CRC << 8) ^ CRC_tmp; break;
+              case 1: CRC.val = 0xB230; sector_header[16] = s_cylinder; break;
+              case 2: CRC_tmp = pgm_read_word_near(Crc16Table + (CRC.bytes.high ^ sector_header[16])); break;
+              case 3: CRC.val = (CRC.bytes.low*256) ^ CRC_tmp; break;
+              case 4: CRC_tmp = pgm_read_word_near(Crc16Table + (CRC.bytes.high ^ sector_header[17])); break;
+              case 5: CRC.val = (CRC.bytes.low*256) ^ CRC_tmp; break;
               case 6: sector_header[18] = sector + 1; break;
-              case 7: CRC_tmp = pgm_read_word_near(Crc16Table + ((CRC >> 8) ^ (sector + 1))); break;
-              case 8: CRC = (CRC << 8) ^ CRC_tmp; break;
-              case 9: CRC_tmp = pgm_read_word_near(Crc16Table + ((CRC >> 8) ^ 1)); break;
-              case 10: CRC = (CRC << 8) ^ CRC_tmp; break;
+              case 7: CRC_tmp = pgm_read_word_near(Crc16Table + (CRC.bytes.high ^ (sector + 1))); break;
+              case 8: CRC.val = (CRC.bytes.low*256) ^ CRC_tmp; break;
+              case 9: CRC_tmp = pgm_read_word_near(Crc16Table + (CRC.bytes.high ^ 1)); break;
+              case 10: CRC.val = (CRC.bytes.low*256) ^ CRC_tmp; break;
                                                         
               case 12:
               case 13:
@@ -198,13 +205,13 @@ ISR(USART_UDRE_vect)
 
               case 15: second_byte = 0; break;
 
-              case 20: sector_header[20] = (byte)(CRC >> 8); break;
-              case 21: sector_header[21] = (byte)CRC; break;
+              case 20: sector_header[20] = CRC.bytes.high; break;
+              case 21: sector_header[21] = CRC.bytes.low; break;
 
               case 22: data_sent = 0; break; /// very important!!!
 
               case 41: sector_even_odd = sector & 1; break;
-              case 42: CRC = 0xE295; break; // START GENERATING CRC HERE, PRE-CALC value for A1,A1,A1,FB = 0xE295 next CRC value
+              case 42: CRC.val = 0xE295; break; // START GENERATING CRC HERE, PRE-CALC value for A1,A1,A1,FB = 0xE295 next CRC value
 
               case 56:
               case 57:
@@ -225,19 +232,19 @@ ISR(USART_UDRE_vect)
           case 5: // DATA FIELD ----------------------------------------------------        
             // get sector data values
             sector_byte = sector_data[sector_even_odd][b_index++];   // pre-get new byte from buffer
-            CRC = (CRC << 8) ^ pgm_read_word_near(Crc16Table + ((CRC >> 8) ^ sector_byte));
+            CRC.val = (CRC.bytes.low * 256) ^ pgm_read_word_near(Crc16Table + (CRC.bytes.high ^ sector_byte));
             if (b_index != 0) break;
             state = 6;
             break;
         
           case 6: // SEND SECTOR CRC -----------------------------------------------
-            if(++sector != 16) data_sent = 1;  // increase sector, reset flag indicates end of sector, for reading new sectors
-            sector_byte = (uint8_t)(CRC >> 8);
+            if(++sector != 16 && (sector % 2) == 0) data_sent = 1;  // increase sector, set flag indicates end of 2 sectors, for reading new sectors
+            sector_byte = CRC.bytes.high;
             state = 7;
             break;
 
           case 7:
-            sector_byte = (uint8_t)CRC;
+            sector_byte = CRC.bytes.low;
             state = 8;
             break;
       
@@ -247,7 +254,7 @@ ISR(USART_UDRE_vect)
             break;      
 
           case 9:
-            if (++b_index != 56) break; // 56 in FDD, increased for stability!!!
+            if (++b_index != 56) break; // 56 in FDD
             if (sector != 16)
             {
                 state = 4;
@@ -329,9 +336,11 @@ int main() {
     { // MAIN LOOP START
         /// MAIN LOOP USED FOR SELECT and INIT SD CARD and other
       
-        //>>>>>> print "NO CARD PRESENT"
+        //>>>>>> print "NO CARD PRESENT" on LCD
         while(pf_mount(&fat) != FR_OK);
-        //>>>>>> print "CARD INFO, TRD IMAGE NAME"
+        //>>>>>> print "CARD INFO etc..."
+
+        //>>>>>> SELECT TRD IMAGE HERE
 
         byte sdhc = getCardType() & CT_SDHC;
         uint8_t chained = fat.csize < 8;
@@ -342,7 +351,13 @@ int main() {
         { /// DRIVE SELECT LOOP
 
             uint8_t chain_index, track, csize_mod = fat.csize-1;
-            uint16_t track_sect;            
+            union {
+                uint16_t val;
+                struct {
+                    byte low;
+                    byte high;
+                } bytes;
+            } track_sect;
 
             while ( (PIND & _BV(MOTOR_ON)) || (PINC & _BV(DRIVE_SEL))); // wait drive select && motor_on
 
@@ -411,8 +426,9 @@ int main() {
                     if(s_cylinder == 0) DDRD |= _BV(TRK00); else DDRD &= ~_BV(TRK00); // Set TRK00 Low or HI-Z
                     s_side = PINC & _BV(SIDE_SEL) ? 0 : 1;
                     track = s_cylinder * 2 + s_side; // track number
-                    track_sect = track * 8;
-                    fat.dsect = fat.database + (clust_table[track] - 2) * fat.csize + (track_sect & csize_mod); // track start LBA number on SD card
+                    track_sect.val = track * 8;
+                    fat.dsect = fat.database + (clust_table[track] - 2) * fat.csize + (track_sect.bytes.low & csize_mod); // track start LBA number on SD card
+                    //track_sect++;
 
                     if(chained)
                     { // prepare cluster chain if cluster is less 4K
@@ -420,7 +436,8 @@ int main() {
                         for(chain_index = 1; chain_index < clusters_per_track; chain_index++) cluster_chain[chain_index] = get_fat(cluster_chain[chain_index-1]);
                         chain_index = 0;
                     }
-                    //>>>>>> print "CYLINDER, HEAD INFO" or track number
+                    
+                    //>>>>>> print "CYLINDER, HEAD INFO" or track number on LCD
 
                     card_read_sector(sector_data,fat.dsect++); // read 2 floppy sectors from SD card (1 SD card sector) and increase LBA
                     
@@ -434,24 +451,20 @@ int main() {
                 }
                 else
                 {
-                    if((sector & 1) == 0)
-                    {
-                        if( chained && ((track_sect + sector + 1) & csize_mod) == 0 ) // on cluster boundary, get next cluster number and calculate LBA  ( only if cluster on SD card is less than 4k !!! )
-                            fat.dsect = fat.database + (cluster_chain[chain_index++]-2) * fat.csize;
+                    if( chained && ((track_sect.bytes.low + sector/2) & csize_mod) == 0 ) // on cluster boundary, get next cluster number and calculate LBA  ( only if cluster on SD card is less than 4k !!! )
+                        fat.dsect = fat.database + (cluster_chain[chain_index++]-2) * fat.csize;
 
-                        // FAST SD card sector loading (read 2 floppy sectors and increase LBA)
-                        uint32_t lba = fat.dsect++;
-                        if (!sdhc) lba <<= 9;    // SDHC - LBA = block number (512 bytes), other - LBA = byte offset
-                        send_cmd(CMD17, lba, 0);
-                        do {
-                            SPDR = 0xFF;
-                            loop_until_bit_is_set(SPSR, SPIF);                          
-                        } while(SPDR == 0xFF);
-                        uint8_t i = 0;
-                        do { SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF); sector_data[0][i++]=SPDR; } while(i!=0);
-                        do { SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF); sector_data[1][i++]=SPDR; } while(i!=0);
-                        DESELECT();
-                    }
+                    // FAST SD card sector loading (read 2 floppy sectors and increase LBA)
+                    uint32_t lba = fat.dsect++;
+                    if (!sdhc) lba <<= 9;    // SDHC - LBA = block number (512 bytes), other - LBA = byte offset
+                    send_cmd(CMD17, lba, 0);
+                    do { SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF); } while(SPDR == 0xFF);
+                    uint8_t i = 0;
+                    do { SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF); sector_data[0][i++]=SPDR; } while(i!=0);
+                    do { SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF); sector_data[1][i++]=SPDR; } while(i!=0);
+                    DESELECT();
+                    SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF);
+                    SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF);
                 }                        
             
                 while(data_sent == 1); // wait until sector data is start transmitting
