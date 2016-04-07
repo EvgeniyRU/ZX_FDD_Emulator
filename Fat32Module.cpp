@@ -38,7 +38,7 @@ uint32_t get_fat (      // 1:IO error, Else:Cluster status
   //if (clst < 2 || clst >= fs->max_clust)        // Range check
   //  return 1;
 
-  if (card_readp(&buf, fs->fatbase + (clst >> 7), ((uint8_t)clst & 127) * 4, 4)) return 1;  
+  if (card_readp(&buf, fs->fatbase + clst / 128, ((uint8_t)clst % 128) * 4, 4)) return 1;  
   return buf & 0x0FFFFFFF;
 }
 

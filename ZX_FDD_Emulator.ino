@@ -193,9 +193,7 @@ ISR(USART_UDRE_vect)
               case 9: CRC_tmp = pgm_read_word_near(Crc16Table + (CRC.bytes.high ^ 1)); break;
               case 10: CRC.val = (CRC.bytes.low * 256) ^ CRC_tmp; break;
                                                         
-              case 12:
-              case 13:
-              case 14:
+              case 12 ... 14:
                 second_byte = 0x76; //inverted 0x89;
                 break;
 
@@ -208,9 +206,7 @@ ISR(USART_UDRE_vect)
 
               case 42: CRC.val = 0xE295; break; // START GENERATING CRC HERE, PRE-CALC value for A1,A1,A1,FB = 0xE295 next CRC value
 
-              case 56:
-              case 57:
-              case 58:
+              case 56 ... 58:
                 second_byte = 0x76; //inverted 0x89;
                 break;
 

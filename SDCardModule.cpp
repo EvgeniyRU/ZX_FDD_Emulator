@@ -191,4 +191,49 @@ void card_read_sector (
   SPDR = 0xFF;
   loop_until_bit_is_set(SPSR, SPIF);
 }
+
+/// Write sector
+CRESULT card_writep (
+  const uint8_t *buff, // Pointer to the bytes to be written (NULL:Initiate/Finalize sector write)
+  uint32_t sa      // Number of bytes to send, Sector number (LBA) or zero
+)
+{
+  CRESULT res;
+  uint16_t bc;
+  static uint16_t wc;
+
+  res = RES_ERROR;
+
+  if (buff) {   // Send data bytes
+    bc = (uint16_t)sa;
+    while (bc && wc) {    // Send data bytes to the card
+      spiSend(*buff++);
+      wc--; bc--;
+    }
+    res = RES_OK;
+  } else {
+    if (sa) { // Initiate sector write process 
+      if (!(CardType & CT_SDHC)) sa *= 512;  // Convert to byte address if needed
+      if (send_cmd(CMD24, sa,0) == 0) {     // WRITE_SINGLE_BLOCK
+        spiSend(0xFF); spiSend(0xFE);   // Data block header
+        wc = 512;             // Set byte counter
+        res = RES_OK;
+      }
+    } else {  // Finalize sector write process
+      bc = wc + 2;
+      while (bc--) spiSend(0); // Fill left bytes and CRC with zeros
+      if ((spiRead() & 0x1F) == 0x05) { // Receive data resp and wait for end of write process in timeout of 500ms
+        for (bc = 5000; spiRead() != 0xFF && bc; bc--) ;//dly_100us(); // Wait ready
+        if (bc) res = RES_OK;
+      }
+      DESELECT();
+      spiRead();
+    }
+  }
+
+  return res;
+}
+
+
+
 /// ----------------------------------------------------------------------------------------------------------------
