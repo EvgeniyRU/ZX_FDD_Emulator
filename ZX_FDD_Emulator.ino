@@ -1,6 +1,7 @@
 // ZX-Spectrum FDD Emulator
 //
 // Current version opens file "default.trd" from SD Card root folder and use it to emulate floppy disk
+// SD CARD: Supported only FAT32 file system, cards SDC/SDHC/MMC, all cluster sizes from 512 bytes to 64k
 //
 #include <avr/io.h>
 #include "PinDefs.h"
@@ -32,7 +33,7 @@ FATFS fat;
 uint8_t sector_header[64]; // sector header
 uint8_t sector_data[2][256]; // sector data
 uint32_t clust_table[MAX_TRACK]; // Cluster table
-uint32_t cluster_chain[4]; // max cluster chain 4 is for 1k cluster or less if higher
+uint32_t cluster_chain[8]; // max cluster chain 8 is for 512 bytes cluster or less if higher
 
 // STATE variable values
 // 0-2    - TRACK HEADER
@@ -85,8 +86,7 @@ const uint16_t Crc16Table[256] PROGMEM = {
 ///
 /// Interrupts enable/disable functions
 ///////////////////////////////////////////
-void inline USART_enable_TX() { UCSR0B |= 0x28; }
-void inline USART_enable_RX() { UCSR0B |= 0x30; }
+void inline USART_enable() { UCSR0B |= 0x28; }
 void inline USART_disable() { UCSR0B = 0x00; }
 void inline INT0_enable() { EIMSK |= 0x01; }
 void inline INT0_disable() { EIMSK &= ~0x01; }
@@ -355,6 +355,8 @@ int main() {
 
             while ( (PIND & _BV(MOTOR_ON)) || (PINC & _BV(DRIVE_SEL))); // wait drive select && motor_on
 
+            /// DEVICE ENABLED ==========================================================================================================================
+
             PORTD |= _BV(INDEX); // set INDEX HIGH
             DDRD |= _BV(WP) | _BV(TRK00) | _BV(INDEX); // Set WP and TRK00 output and LOW, INDEX - HIGH
         
@@ -441,11 +443,12 @@ int main() {
                     
                     sector_byte = 0x4E;
                     data_sent = 0;
-                    USART_enable_TX(); // Enable DATA transmit interrupt                    
+                    USART_enable(); // Enable DATA transmit interrupt                    
                 }
                 else
                 {
-                    if( chained && ((track_sect.bytes.low + sector/2) % fat.csize) == 0 ) // on cluster boundary, get next cluster number and calculate LBA  ( only if cluster on SD card is less than 4k !!! )
+                    // on cluster boundary, get next cluster number and calculate LBA  ( only if cluster on SD card is less than 4k !!! )
+                    if( chained && ((track_sect.bytes.low + sector/2) % fat.csize) == 0 )
                         fat.dsect = fat.database + (cluster_chain[chain_index++]-2) * fat.csize;
 
                     // FAST SD card sector loading (read 2 floppy sectors and increase LBA)
@@ -470,6 +473,8 @@ int main() {
             INT0_disable(); // DISABLE INDERRUPT (STEP pin)
             DDRD &= ~(_BV(WP) | _BV(TRK00) | _BV(INDEX)); // Set WP and TRK00 as input and HI-Z to not affect other floppies
             PORTD |= _BV(INDEX); // set pullup on index
+
+            /// DEVICE DISABLED =========================================================================================================================
 
         } /// DRIVE SELECT LOOP END
       
