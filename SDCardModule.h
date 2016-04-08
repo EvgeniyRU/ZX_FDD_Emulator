@@ -1,7 +1,8 @@
 #ifndef SDCARD_MODULE_H
 #define SDCARD_MODULE_H
 
-
+#include "PinDefs.h"
+#include <stdint.h>
 
 /* SD card attached to SPI bus as follows: MOSI - pin 11, MISO - pin 12, CLK(SCK) - pin 13, CS - pin 10 */
 #define SPI_DDR   DDRB

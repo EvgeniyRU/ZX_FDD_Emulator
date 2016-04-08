@@ -2,6 +2,9 @@
 //
 // Current version opens file "default.trd" from SD Card root folder and use it to emulate floppy disk
 //
+#include <avr/io.h>
+#include "PinDefs.h"
+
 #define SIDE_SEL  PC0   // pin A0, SIDE SELECT                                  (INPUT)
 #define DRIVE_SEL PC1   // pin A1, DRIVE SELECT CONNECT DS0-DS3 using jumper    (INPUT)
 
