@@ -135,11 +135,11 @@ ISR(USART_UDRE_vect)
             PORTD &= ~_BV(INDEX); // Set INDEX - LOW
             sector_byte = 0x4E;
             state = 1;
-            b_index = 1;
+            b_index = 0;
             break;
       
           case 1: // send track header ------------------------------------------
-            if (b_index++ != 40) break; // 80 in FDD
+            if (++b_index != 40) break; // 80 in FDD
             state = 2;
             b_index = 0;            
             PORTD |= _BV(INDEX); // Set INDEX - HIGH
@@ -157,8 +157,7 @@ ISR(USART_UDRE_vect)
                     data_sent = 2; // set flag indicates end of track, for reinitialize track data and read new sectors
                     goto ISR_END;
                 }
-                break;             
-
+                break;
               // Address field CRC Calculation
               case 1: CRC.val = 0xB230; break;
               case 2: CRC_tmp = pgm_read_word_near(Crc16Table + (CRC.bytes.high ^ sector_header[16])); break;
@@ -170,18 +169,15 @@ ISR(USART_UDRE_vect)
               case 8: CRC.val = (CRC.bytes.low * 256) ^ CRC_tmp; break;
               case 9: CRC_tmp = pgm_read_word_near(Crc16Table + (CRC.bytes.high ^ 1)); break;
               case 10: CRC.val = (CRC.bytes.low * 256) ^ CRC_tmp; break;
-                                                        
-              case 20: sector_header[20] = CRC.bytes.high; break;
-              case 21: sector_header[21] = CRC.bytes.low; break;
-
-              case 22: data_sent = 0; break; /// very important!!!
-
-              case 42: CRC.val = 0xE295; break; // START GENERATING CRC HERE, PRE-CALC value for A1,A1,A1,FB = 0xE295 next CRC value
+              case 11: sector_header[20] = CRC.bytes.high; break;
+              case 12: sector_header[21] = CRC.bytes.low; break;
+              case 13: data_sent = 0; break; /// very important!!!
             }
             // send sector bytes before data
             sector_byte = sector_header[b_index];   // pre-get new byte from buffer
             
             if (++b_index != 60) break;
+            CRC.val = 0xE295; // START GENERATING CRC HERE, PRE-CALC value for A1,A1,A1,FB = 0xE295 next CRC value
             b_index = 0;
             state = 3;
             break;
