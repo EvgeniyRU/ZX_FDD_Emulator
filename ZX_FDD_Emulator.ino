@@ -133,13 +133,12 @@ ISR(USART_UDRE_vect)
         {
           case 0: // start track header -----------------------------------------
             PORTD &= ~_BV(INDEX); // Set INDEX - LOW
-            sector_byte = 0x4E;
             state = 1;
             b_index = 0;
             break;
       
           case 1: // send track header ------------------------------------------
-            if (++b_index != 40) break; // 80 in FDD
+            if (++b_index != 10) break; // 80 in FDD
             state = 2;
             b_index = 0;            
             PORTD |= _BV(INDEX); // Set INDEX - HIGH
@@ -207,7 +206,7 @@ ISR(USART_UDRE_vect)
             break;      
 
           case 7:
-            if (++b_index != 52) break; // 56 in FDD
+            if (++b_index != 46) break; // 56 in FDD
             if (sector != 16)
             {
                 state = 2;
