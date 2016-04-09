@@ -260,9 +260,8 @@ void emu_init()
     // INIT pins and ports
     // ALL OUTPUT PINS WORK IN HI-Z MODE!!! ALL INPUT PINS SHOULD BE WITH PULL UP!!!
     PORTC |= _BV(DRIVE_SEL) | _BV(SIDE_SEL) ; // set pull_up
-    PORTD |= _BV(STEP) | _BV(MOTOR_ON) | _BV(INDEX); // set pull-up // | _BV(WRT_GATE)
+    PORTD |= _BV(STEP) | _BV(MOTOR_ON) | _BV(INDEX) | _BV(TRK00) | _BV(WP); // set pull-up // | _BV(WRT_GATE)
     PORTB |= _BV(DIR_SEL); // set pull-up
-    PORTD &= ~(_BV(WP) | _BV(TRK00)); // disable pullup for HI-Z mode on these pins
   
     // Init SPI for SD Card
     SPI_DDR = _BV(SPI_MOSI) | _BV(SPI_SCK) | _BV(SPI_CS); //set output mode for MOSI, SCK ! move SS to GND
@@ -304,10 +303,12 @@ int main() {
             while ( (PIND & _BV(MOTOR_ON)) || (PINC & _BV(DRIVE_SEL))); // wait drive select && motor_on
 
             /// DEVICE ENABLED ==========================================================================================================================
-
-            PORTD |= _BV(INDEX); // set INDEX HIGH
+            
             DDRD |= _BV(WP) | _BV(TRK00) | _BV(INDEX); // Set WP and TRK00 output and LOW, INDEX - HIGH
-        
+            PORTD |= _BV(INDEX); // set INDEX - HIGH
+            PORTD &= ~(_BV(WP) | _BV(TRK00)); // set WP and TRK00 - LOW
+
+       
             
             /////////////////////////////////////////////////////////////////
             // INIT after drive selected
@@ -363,6 +364,9 @@ int main() {
                 while (data_sent == 0); // wait until sector data of track is not completely sent
                 if( data_sent == 2 ) // initialize track data for next round
                 {
+
+                    // Read first 2 sectors of the track and then start transmitting data
+                  
                     if(cylinder_changed)
                     {
                         send_cmd(CMD12,0,0); // stop transmission from SD card if partial sector read;
@@ -385,7 +389,7 @@ int main() {
                     }
                     // set initial values for current track
                     sector_header[16] = cylinder;  // current Floppy cylinder
-                    if(sector_header[16] == 0) DDRD |= _BV(TRK00); else DDRD &= ~_BV(TRK00); // Set TRK00 Low or HI-Z
+                    if(sector_header[16] == 0) PORTD &= ~_BV(TRK00); else PORTD |= _BV(TRK00); // Set TRK00 - LOW or HIGH
                     sector_header[17] = PINC & _BV(SIDE_SEL) ? 0 : 1;
                     track = sector_header[16] * 2 + sector_header[17]; // track number
                     track_sect = track << 3;
@@ -410,15 +414,17 @@ int main() {
                     USART_enable(); // Enable DATA transmit interrupt                    
                 }
                 else
-                {
-                    // on cluster boundary, get next cluster number and calculate LBA  ( only if cluster on SD card is less than 4k !!! )
-                    if((sector % 2) == 1)
-                    { // read SC card first half of the sector (odd floppy sector)
-                        if( chained )
-                         if ((++track_sect % fat.csize) == 0 )
-                            fat.dsect = fat.database + (cluster_chain[chain_index++]-2) * fat.csize;
+                {                    
+                    // FAST SD card sector loading (read 2 floppy sectors and increase LBA)
                     
-                        // FAST SD card sector loading (read 2 floppy sectors and increase LBA)
+                    if((sector % 2) == 1)
+                    { // read SD card first half of the sector (odd floppy sector)
+
+                        // on cluster boundary, get next cluster number and calculate LBA  ( only if cluster on SD card is less than 4k !!! )
+                        if( chained )
+                            if ( !(++track_sect % fat.csize) )
+                                fat.dsect = fat.database + (cluster_chain[chain_index++]-2) * fat.csize;
+                    
                         uint32_t lba = fat.dsect++;
                         if (!sdhc) lba *= 512;    // SDHC - LBA = block number (512 bytes), other - LBA = byte offset
                         send_cmd(CMD17, lba, 0);
@@ -426,7 +432,7 @@ int main() {
                         for(uint8_t i=0 ;; i++) { SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF); sector_data[0][i]=SPDR; if(i==0xFF) break;}
                     }
                     else
-                    { // read SC card first second half of the sector (even floppy sector)
+                    { // read SD card first second half of the sector (even floppy sector)
                         for(uint8_t i=0 ;; i++) { SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF); sector_data[1][i]=SPDR; if(i==0xFF) break;}
                         DESELECT();
                     }
@@ -439,8 +445,8 @@ int main() {
     
             USART_disable(); // disable interrupt after sending track
             INT0_disable(); // DISABLE INDERRUPT (STEP pin)
-            DDRD &= ~(_BV(WP) | _BV(TRK00) | _BV(INDEX)); // Set WP and TRK00 as input and HI-Z to not affect other floppies
-            PORTD |= _BV(INDEX); // set pullup on index
+            DDRD &= ~(_BV(WP) | _BV(TRK00) | _BV(INDEX)); // Set WP,TRK00,INDEX as input
+            PORTD |= _BV(INDEX) | _BV(TRK00) | _BV(INDEX); // set pullup on WP,TRK00,INDEX
 
             /// DEVICE DISABLED =========================================================================================================================
 
