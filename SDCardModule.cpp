@@ -136,27 +136,28 @@ CRESULT card_readp (
   if (send_cmd(CMD17, lba, 0) == 0)
   { // READ_SINGLE_BLOCK
 
-    while( (rc = spiRead() ) == 0xFF ); // wait for CARD is ready to transmit block of data
+      while( (rc = spiRead() ) == 0xFF ); // wait for CARD is ready to transmit block of data
 
-    if (rc == 0xFE)
-    { // receive data block 512 bytes + CRC
-      p = (uint8_t*)dest;
-      for(uint16_t i = 0; i < 514; i++)
-      {
-        SPDR = 0xFF;
-        loop_until_bit_is_set(SPSR, SPIF);
-        if( i >= ofs && cnt != 0)
-        {
-            *p++ = SPDR;
-            cnt--;
-        }
+      if (rc == 0xFE)
+      { // receive data block 512 bytes + CRC
+          p = (uint8_t*)dest;
+          for(uint16_t i = 0; i < 514; i++)
+          {
+              SPDR = 0xFF;
+              loop_until_bit_is_set(SPSR, SPIF);
+              if( i >= ofs )
+              {
+                  *p++ = SPDR;
+                  if(!--cnt)
+                  {
+                      send_cmd(CMD12,0,0); // stop transmission from SD card if partial sector read;
+                      DESELECT();
+                      return cnt ? RES_ERROR : RES_OK;
+                  }
+              }
+          }
       }
-    }
   }
-
-  DESELECT();
-  spiRead();
-  
   return cnt ? RES_ERROR : RES_OK;
 }
   
@@ -178,12 +179,8 @@ void card_read_sector (
     if (rc == 0xFE)
     { // receive data block + CRC
       p = (uint8_t*)dest;
-      for(uint16_t i=0; i < 514; i++)
-      {
-        SPDR = 0xFF;
-        loop_until_bit_is_set(SPSR, SPIF);
-        if(i < 512) *p++ = SPDR;
-      }
+      for(uint8_t i=0 ;; i++) { SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF); *p++=SPDR; if(i==0xFF) break;}
+      for(uint8_t i=0 ;; i++) { SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF); *p++=SPDR; if(i==0xFF) break;}
     }
   }
 

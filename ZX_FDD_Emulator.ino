@@ -4,6 +4,7 @@
 // SD CARD: Supported only FAT32 file system, cards SDC/SDHC/MMC, all cluster sizes from 512 bytes to 64k
 //
 #include <avr/io.h>
+#include <util/atomic.h>
 #include "PinDefs.h"
 
 #define SIDE_SEL  PC0   // pin A0, SIDE SELECT                                  (INPUT)
@@ -24,7 +25,6 @@
 #include "Fat32Module.h"
 FATFS fat;
 
-
 /// EMULATOR START -------------------------------------------------------------------------------------------------
 
 #define MAX_CYL 84          /// maximal cylinder supported by FDD
@@ -39,7 +39,7 @@ uint32_t cluster_chain[8]; // max cluster chain 8 is for 512 bytes cluster or le
 // 0-2    - TRACK HEADER
 // 4-9    - SECTOR
 // 10-11  - TRACK FOOTER
-uint8_t state, max_track, track_changed, sector, tmp, max_cylinder, cylinder;
+uint8_t state, max_track, sector, tmp, max_cylinder, cylinder, cylinder_changed;
 volatile uint8_t data_sent; // this is important!!!
 uint16_t CRC_tmp;
 union { uint16_t val; struct { byte low; byte high; } bytes; } CRC;
@@ -88,10 +88,23 @@ const uint16_t Crc16Table[256] PROGMEM = {
 ///
 /// Interrupts enable/disable functions
 ///////////////////////////////////////////
-void inline USART_enable() { UCSR0B |= 0x28; }
+void inline USART_enable() { UCSR0B = 0x28; }
 void inline USART_disable() { UCSR0B = 0x00; }
 void inline INT0_enable() { EIMSK |= 0x01; }
 void inline INT0_disable() { EIMSK &= ~0x01; }
+
+uint8_t t_millis = 0;
+uint8_t easy_millis()
+{
+    uint8_t millis_ret;
+    ATOMIC_BLOCK(ATOMIC_FORCEON)millis_ret = t_millis;
+    return millis_ret;
+}
+
+ISR (TIMER0_OVF_vect)    // timer0 interrupt service routine
+{
+    t_millis++;
+}
 
 
 ///
@@ -99,17 +112,17 @@ void inline INT0_disable() { EIMSK &= ~0x01; }
 ///////////////////////////////////////////
 ISR(INT0_vect)
 {
+  // don't do step if write_gate active (LOW)
     if(PINB & _BV(DIR_SEL))
     {
         if(cylinder > 0) cylinder--;
     }
     else
         if(cylinder < max_cylinder) cylinder++;
-
     USART_disable();
-    PORTD |= _BV(INDEX); // Set INDEX - HIGH it may be LOW in USART interrupt
-    track_changed = 1;
-    data_sent = 2;
+    PORTD |= _BV(INDEX); // Set INDEX - HIGH
+    cylinder_changed = 1;
+    data_sent = 2; // set flag indicates end of track, for reinitialize track data and read new sectors
 }
 
 
@@ -138,7 +151,7 @@ ISR(USART_UDRE_vect)
             break;
       
           case 1: // send track header ------------------------------------------
-            if (++b_index != 10) break; // 80 in FDD
+            if (++b_index != 5) break; // 80 in FDD
             state = 2;
             b_index = 0;            
             PORTD |= _BV(INDEX); // Set INDEX - HIGH
@@ -148,18 +161,11 @@ ISR(USART_UDRE_vect)
           {
             switch(b_index)
             {
-              case 0:
-                // THE BEST SOLUTION!!! If side is changed during track tranmition we restart the track.
-                if ((PINC & 1) == sector_header[17]) // WARNING!!! SIDE_SEL pin used!!!
-                {
-                    USART_disable();
-                    data_sent = 2; // set flag indicates end of track, for reinitialize track data and read new sectors
-                    goto ISR_END;
-                }
-                break;
               // Address field CRC Calculation
-              case 1: CRC.val = 0xB230; break;
-              case 2: CRC_tmp = pgm_read_word_near(Crc16Table + (CRC.bytes.high ^ sector_header[16])); break;
+              case 0: CRC.val = 0xB230; break;              
+              // WARNING!!! SIDE_SEL pin used!!! THE BEST SOLUTION!!! If side is changed during track tranmition we set wrong CRC for that sector.
+              case 1: if ((PINC & 1) == sector_header[17]) CRC.bytes.low = 0; break;
+              case 2: CRC_tmp = pgm_read_word_near(Crc16Table + (CRC.bytes.high ^ sector_header[16])); break;             
               case 3: CRC.val = (CRC.bytes.low * 256) ^ CRC_tmp; break;
               case 4: CRC_tmp = pgm_read_word_near(Crc16Table + (CRC.bytes.high ^ sector_header[17])); break;
               case 5: CRC.val = (CRC.bytes.low * 256) ^ CRC_tmp; break;
@@ -170,7 +176,6 @@ ISR(USART_UDRE_vect)
               case 10: CRC.val = (CRC.bytes.low * 256) ^ CRC_tmp; break;
               case 11: sector_header[20] = CRC.bytes.high; break;
               case 12: sector_header[21] = CRC.bytes.low; break;
-              case 13: data_sent = 0; break; /// very important!!!
             }
             // send sector bytes before data
             sector_byte = sector_header[b_index];   // pre-get new byte from buffer
@@ -179,6 +184,7 @@ ISR(USART_UDRE_vect)
             CRC.val = 0xE295; // START GENERATING CRC HERE, PRE-CALC value for A1,A1,A1,FB = 0xE295 next CRC value
             b_index = 0;
             state = 3;
+            data_sent = 0;
             break;
           }
           case 3: // DATA FIELD ----------------------------------------------------
@@ -186,11 +192,12 @@ ISR(USART_UDRE_vect)
             sector_byte = sector_data[sector % 2][b_index++];   // pre-get new byte from buffer
             CRC.val = (CRC.bytes.low * 256) ^ pgm_read_word_near(Crc16Table + (CRC.bytes.high ^ sector_byte));
             if (b_index != 0) break;
+            if(++sector < 15) data_sent = 1;
             state = 4;
             break;
         
           case 4: // SEND SECTOR CRC -----------------------------------------------
-            if(++sector != 16 && (sector % 2) == 0) data_sent = 1;  // increase sector, set flag indicates end of 2 sectors, for reading new sectors
+            // increase sector, set flag indicates end of 2 sectors, for reading new sectors
             sector_byte = CRC.bytes.high;
             state = 5;
             break;
@@ -206,7 +213,7 @@ ISR(USART_UDRE_vect)
             break;      
 
           case 7:
-            if (++b_index != 46) break; // 56 in FDD
+            if (++b_index != 56) break; // 56 in FDD, increased for stability!
             if (sector != 16)
             {
                 state = 2;
@@ -248,7 +255,7 @@ void emu_init()
     UCSR0B = 0x00; // disabled
 
     //INIT INT0 interrupt
-    EICRA = 0x03; // INT0 (falling edge=0x02, rising edge=0x03)
+    EICRA = 0x03; // INT0 (rising edge=0x03) RISING EDGE IS IMPORTANT!!!
 
     // INIT pins and ports
     // ALL OUTPUT PINS WORK IN HI-Z MODE!!! ALL INPUT PINS SHOULD BE WITH PULL UP!!!
@@ -292,14 +299,7 @@ int main() {
         while (1)
         { /// DRIVE SELECT LOOP
 
-            uint8_t chain_index, track;
-            union {
-                uint16_t val;
-                struct {
-                    byte low;
-                    byte high;
-                } bytes;
-            } track_sect;
+            uint8_t chain_index, track, track_sect;
 
             while ( (PIND & _BV(MOTOR_ON)) || (PINC & _BV(DRIVE_SEL))); // wait drive select && motor_on
 
@@ -355,24 +355,42 @@ int main() {
             INT0_enable(); // ENABLE INDERRUPT (STEP pin)
 
             // update values for current track
-            cylinder = track_changed = 0;
             data_sent = 2;
+            cylinder = cylinder_changed = 0;
         
             do { // READ DATA SEND LOOP (send data from FDD to FDD controller)  
             //-------------------------------------------------------------------------------------------
-            REPEAT:
                 while (data_sent == 0); // wait until sector data of track is not completely sent
-
                 if( data_sent == 2 ) // initialize track data for next round
                 {
+                    if(cylinder_changed)
+                    {
+                        send_cmd(CMD12,0,0); // stop transmission from SD card if partial sector read;
+                        DESELECT();
+                        t_millis = 0;
+                        TCCR0A = 0;
+                        TCCR0B = 3;    // 3 = 1024mcs overflow ~ 1ms
+                        TIMSK0 = 1;   // enable timer interrupt
+                        while(easy_millis() < 15);
+                        TIMSK0 = 0;
+                        do {
+                            cylinder_changed = 0;
+                            t_millis = 0;
+                            TCCR0A = 0;
+                            TCCR0B = 3;    // 3 = 1024mcs overflow ~ 1ms
+                            TIMSK0 = 1;   // enable timer interrupt
+                            while(easy_millis() < 4);
+                            TIMSK0 = 0;
+                        } while(cylinder_changed);                      
+                    }
                     // set initial values for current track
                     sector_header[16] = cylinder;  // current Floppy cylinder
                     if(sector_header[16] == 0) DDRD |= _BV(TRK00); else DDRD &= ~_BV(TRK00); // Set TRK00 Low or HI-Z
                     sector_header[17] = PINC & _BV(SIDE_SEL) ? 0 : 1;
                     track = sector_header[16] * 2 + sector_header[17]; // track number
-                    track_sect.val = track * 8;
-                    fat.dsect = fat.database + (clust_table[track] - 2) * fat.csize + (track_sect.bytes.low % fat.csize); // track start LBA number on SD card
-                    //track_sect++;
+                    track_sect = track << 3;
+                    fat.dsect = fat.database + (clust_table[track] - 2) * fat.csize + (track_sect % fat.csize); // track start LBA number on SD card
+                    track_sect += 2;
 
                     if(chained)
                     { // prepare cluster chain if cluster is less 4K
@@ -383,36 +401,38 @@ int main() {
                     
                     //>>>>>> print "CYLINDER, HEAD INFO" or track number on LCD
 
+                    for(uint8_t i=0; i < 255; i++) { SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF); }
                     card_read_sector(sector_data,fat.dsect++); // read 2 floppy sectors from SD card (1 SD card sector) and increase LBA
                     
-                    state = b_index = sector = tmp = 0;
-
-                    if(track_changed) { track_changed = 0; goto REPEAT; }
-                    
                     sector_byte = 0x4E;
-                    data_sent = 0;
+                    state = b_index = sector = tmp = data_sent = 0;
+                    
                     USART_enable(); // Enable DATA transmit interrupt                    
                 }
                 else
                 {
                     // on cluster boundary, get next cluster number and calculate LBA  ( only if cluster on SD card is less than 4k !!! )
-                    if( chained && ((track_sect.bytes.low + sector/2) % fat.csize) == 0 )
-                        fat.dsect = fat.database + (cluster_chain[chain_index++]-2) * fat.csize;
-
-                    // FAST SD card sector loading (read 2 floppy sectors and increase LBA)
-                    uint32_t lba = fat.dsect++;
-                    if (!sdhc) lba *= 512;    // SDHC - LBA = block number (512 bytes), other - LBA = byte offset
-                    send_cmd(CMD17, lba, 0);
-                    do { SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF); } while(SPDR == 0xFF);
-                    uint8_t i = 0;
-                    do { SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF); sector_data[0][i++]=SPDR; } while(i!=0);
-                    do { SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF); sector_data[1][i++]=SPDR; } while(i!=0);
-                    DESELECT();
-                    SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF);
-                    SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF);
-                }                        
-            
-                while(data_sent == 1); // wait until sector data is start transmitting
+                    if((sector % 2) == 1)
+                    { // read SC card first half of the sector (odd floppy sector)
+                        if( chained )
+                         if ((++track_sect % fat.csize) == 0 )
+                            fat.dsect = fat.database + (cluster_chain[chain_index++]-2) * fat.csize;
+                    
+                        // FAST SD card sector loading (read 2 floppy sectors and increase LBA)
+                        uint32_t lba = fat.dsect++;
+                        if (!sdhc) lba *= 512;    // SDHC - LBA = block number (512 bytes), other - LBA = byte offset
+                        send_cmd(CMD17, lba, 0);
+                        do { SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF); } while(SPDR == 0xFF);
+                        for(uint8_t i=0 ;; i++) { SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF); sector_data[0][i]=SPDR; if(i==0xFF) break;}
+                    }
+                    else
+                    { // read SC card first second half of the sector (even floppy sector)
+                        for(uint8_t i=0 ;; i++) { SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF); sector_data[1][i]=SPDR; if(i==0xFF) break;}
+                        DESELECT();
+                    }
+                }                                        
+                
+                while(data_sent == 1); // wait whule data is start transmitting
         
             } while (!(PIND & _BV(MOTOR_ON)) && !(PINC & _BV(DRIVE_SEL))); // READ DATA SEND LOOP END
             //-------------------------------------------------------------------------------------------
