@@ -152,6 +152,7 @@ CRESULT card_readp (
                   {
                       send_cmd(CMD12,0,0); // stop transmission from SD card if partial sector read;
                       DESELECT();
+                      SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF);
                       return cnt ? RES_ERROR : RES_OK;
                   }
               }
@@ -184,9 +185,10 @@ void card_read_sector (
     }
   }
 
+  SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF);
+  SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF);
   DESELECT();
-  SPDR = 0xFF;
-  loop_until_bit_is_set(SPSR, SPIF);
+  SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF);
 }
 
 /// Write sector
