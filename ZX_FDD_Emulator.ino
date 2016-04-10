@@ -384,7 +384,6 @@ int main() {
                     track = sector_header[16] * 2 + sector_header[17]; // track number
                     track_sect = track << 3;
                     fat.dsect = fat.database + (clust_table[track] - 2) * fat.csize + (track_sect % fat.csize); // track start LBA number on SD card
-                    track_sect += 2;
 
                     if(chained)
                     { // prepare cluster chain if cluster is less 4K
@@ -405,7 +404,7 @@ int main() {
                     // FAST SD card sector loading (read 2 floppy sectors and increase LBA)
                     // on cluster boundary, get next cluster number and calculate LBA  ( only if cluster on SD card is less than 4k !!! )
                     if( chained )
-                        if ( !(++track_sect % fat.csize) )
+                        if ( ( (track_sect++ + 1) % fat.csize) == 0 )
                             fat.dsect = fat.database + (cluster_chain[chain_index++]-2) * fat.csize;
                   
                     card_read_sector(sector_data,fat.dsect++); // read 2 floppy sectors from SD card (1 SD card sector) and increase LBA
@@ -430,4 +429,5 @@ int main() {
     } // MAIN LOOP END
   
 } // END MAIN
+
 
