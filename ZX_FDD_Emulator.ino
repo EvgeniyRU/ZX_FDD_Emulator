@@ -312,7 +312,7 @@ int main() {
             
             if(pf_open("default.trd") != FR_OK) break; // if unable to open file, usually if SD card is removed
 
-            max_track = (fat.fsize/4096 < MAX_TRACK)?fat.fsize/4096:MAX_TRACK; // calculate maximal cylinder
+            max_track = (fat.fsize/4096 < MAX_TRACK)?fat.fsize/4096 + 1:MAX_TRACK; // calculate maximal cylinder
             max_cylinder = max_track / 2; // calculate maximal cylinder
 
             /// FAST create cluster table for tracks ----------------------------------------------------------------------------------------
