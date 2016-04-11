@@ -182,11 +182,11 @@ void card_read_sector (
       p = (uint8_t*)dest;
       for(uint8_t i=0 ;; i++) { SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF); *p++=SPDR; if(i==0xFF) break;}
       for(uint8_t i=0 ;; i++) { SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF); *p++=SPDR; if(i==0xFF) break;}
+      SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF);
+      SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF);
     }
   }
 
-  SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF);
-  SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF);
   DESELECT();
   SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF);
 }
@@ -232,7 +232,6 @@ CRESULT card_writep (
 
   return res;
 }
-
 
 
 /// ----------------------------------------------------------------------------------------------------------------

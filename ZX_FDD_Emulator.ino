@@ -25,11 +25,11 @@ FATFS fat;
 
 /// EMULATOR START -------------------------------------------------------------------------------------------------
 
-#define MAX_CYL 84          /// maximal cylinder supported by FDD
+#define MAX_CYL 82          /// maximal cylinder supported by FDD
 #define MAX_TRACK MAX_CYL*2 /// maximal track
 
 uint8_t sector_header[64]; // sector header
-uint8_t sector_data[2][256]; // sector data
+uint8_t sector_data[256]; // sector data
 uint32_t clust_table[MAX_TRACK]; // Cluster table
 uint32_t cluster_chain[8]; // max cluster chain 8 is for 512 bytes cluster or less if higher
 
@@ -113,10 +113,9 @@ ISR(PCINT2_vect)
             if(cylinder > 0) cylinder--;
         }
         else
-            if(cylinder < max_cylinder) cylinder++;
+            if(cylinder + 1 < max_cylinder) cylinder++;
 
         USART_disable();
-        PORTB |= _BV(INDEX); // Set INDEX - HIGH
         cylinder_changed = 1;
         data_sent = 2; // set flag indicates end of track, for reinitialize track data and read new sectors
     }    
@@ -148,7 +147,7 @@ ISR(USART_UDRE_vect)
             break;
       
           case 1: // send track header ------------------------------------------
-            if (++b_index != 5) break; // 80 in FDD
+            if (++b_index != 80) break; // 80 in FDD
             state = 2;
             b_index = 0;            
             PORTB |= _BV(INDEX); // Set INDEX - HIGH
@@ -159,9 +158,9 @@ ISR(USART_UDRE_vect)
             switch(b_index)
             {
                 // Address field CRC Calculation
-                case 0: CRC.val = 0xB230; break;              
+                case 0: CRC.val = 0xB230; break;
                 // WARNING!!! SIDE_SEL pin used!!! THE BEST SOLUTION!!! If side is changed during track tranmition we set wrong CRC for that sector.
-                case 1: if ((PIND & 1) == sector_header[17]) CRC.bytes.low = 0; break;
+                case 1: if ((PIND & 1) == sector_header[17]) CRC.bytes.high = 0; break;
                 case 2: CRC_tmp = pgm_read_word_near(Crc16Table + (CRC.bytes.high ^ sector_header[16])); break;             
                 case 3: CRC.val = (CRC.bytes.low * 256) ^ CRC_tmp; break;
                 case 4: CRC_tmp = pgm_read_word_near(Crc16Table + (CRC.bytes.high ^ sector_header[17])); break;
@@ -186,10 +185,10 @@ ISR(USART_UDRE_vect)
           }
           case 3: // DATA FIELD ----------------------------------------------------
             // get sector data values
-            sector_byte = sector_data[sector % 2][b_index++];   // pre-get new byte from buffer
+            sector_byte = sector_data[b_index++];   // pre-get new byte from buffer
             CRC.val = (CRC.bytes.low * 256) ^ pgm_read_word_near(Crc16Table + (CRC.bytes.high ^ sector_byte));
             if (b_index != 0) break;
-            if(++sector < 15 && sector % 2 == 0) data_sent = 1;
+            if(++sector < 16) data_sent = 1;
             state = 4;
             break;
         
@@ -312,39 +311,41 @@ int main() {
             
             if(pf_open("default.trd") != FR_OK) break; // if unable to open file, usually if SD card is removed
 
-            max_track = (fat.fsize/4096 < MAX_TRACK)?fat.fsize/4096 + 1:MAX_TRACK; // calculate maximal cylinder
-            max_cylinder = max_track / 2; // calculate maximal cylinder
+            max_track = fat.fsize / 4096;
+            if(fat.fsize % 4096 > 0) max_track++;
+            if( max_track > MAX_TRACK) max_track = MAX_TRACK; // calculate maximal cylinder
+            max_cylinder = max_track / 2 + max_track % 2; // calculate maximal cylinder
 
             /// FAST create cluster table for tracks ----------------------------------------------------------------------------------------
             clust_table[0] = fat.org_clust;
-            uint32_t cur_fat, cur_fat_sector = fat.org_clust / 128;
-            card_read_sector(sector_data, fat.fatbase + cur_fat_sector); // read data_block with start cluster number            
+            uint32_t cur_fat, cur_fat_sector = fat.org_clust / 64;
+            card_readp(sector_data, fat.fatbase + cur_fat_sector/2, (cur_fat_sector%2)*256, 256); // read data_block with start cluster number            
             for(uint8_t i = 1; i < max_track; i++) 
             {
                 cur_fat = clust_table[i-1];
                                 
                 if(tracks_per_cluster == 0)
-                {
+                { // if cluster < 4k
                     for(uint8_t k = 0; k < clusters_per_track; k++)
                     {
-                        if( (cur_fat >> 7) != cur_fat_sector )
+                        if( (cur_fat / 64) != cur_fat_sector )
                         {
-                            cur_fat_sector = cur_fat / 128;
-                            card_read_sector(sector_data, fat.fatbase + cur_fat_sector); // read data_block with current cluster number
+                            cur_fat_sector = cur_fat / 64;
+                            card_readp(sector_data, fat.fatbase + cur_fat_sector/2, (cur_fat_sector%2)*256, 256); // read data_block with current cluster number
                         }
-                        cur_fat = (uint32_t)(*(uint32_t*)(&sector_data[0][0] + ((uint8_t)cur_fat % 128) * 4));
+                        cur_fat = (uint32_t)(*(uint32_t*)(sector_data + ((uint8_t)cur_fat % 64) * 4));
                     }
                 }
                 else
-                {
+                { // if cluster >= 4k
                     if( i % tracks_per_cluster == 0)
                     {
-                        if( (cur_fat >> 7) != cur_fat_sector )
+                        if( (cur_fat / 64) != cur_fat_sector )
                         {
-                            cur_fat_sector = cur_fat / 128;
-                            card_read_sector(sector_data, fat.fatbase + cur_fat_sector); // read data_block with current cluster number
+                            cur_fat_sector = cur_fat / 64;
+                            card_readp(sector_data, fat.fatbase + cur_fat_sector/2, (cur_fat_sector%2)*256, 256); // read data_block with current cluster number
                         }
-                        cur_fat = (uint32_t)(*(uint32_t*)(&sector_data[0][0] + ((uint8_t)cur_fat % 128) * 4));
+                        cur_fat = (uint32_t)(*(uint32_t*)(sector_data + ((uint8_t)cur_fat % 64) * 4));
                     }
                 }   
                 clust_table[i] = cur_fat;
@@ -361,6 +362,7 @@ int main() {
                 while (data_sent == 0); // wait until sector data of track is not completely sent
                 if( data_sent == 2 ) // initialize track data for next round
                 {
+                    send_cmd(CMD12, 0, 0); // stop sd transmission
 
                     // Read first 2 sectors of the track and then start transmitting data
                   
@@ -382,8 +384,9 @@ int main() {
                     if(sector_header[16] == 0) PORTD &= ~_BV(TRK00); else PORTD |= _BV(TRK00); // Set TRK00 - LOW or HIGH
                     sector_header[17] = PIND & _BV(SIDE_SEL) ? 0 : 1;
                     track = sector_header[16] * 2 + sector_header[17]; // track number
-                    track_sect = track << 3;
+                    track_sect = track * 8;
                     fat.dsect = fat.database + (clust_table[track] - 2) * fat.csize + (track_sect % fat.csize); // track start LBA number on SD card
+                    if(!sdhc) fat.dsect *= 512;
 
                     if(chained)
                     { // prepare cluster chain if cluster is less 4K
@@ -393,23 +396,38 @@ int main() {
                     }
                     
                     //>>>>>> print "CYLINDER, HEAD INFO" or track number on LCD
-
-                    card_read_sector(sector_data,fat.dsect++); // read 2 floppy sectors from SD card (1 SD card sector) and increase LBA                    
+ 
                     sector_byte = 0x4E;
-                    state = b_index = sector = tmp = data_sent = 0;
-                    USART_enable(); // Enable DATA transmit interrupt                    
+                    state = b_index = sector = tmp = 0;
+                    data_sent = 1;                    
+                    goto READ_FIRST;
                 }
                 else
                 {                    
                     // FAST SD card sector loading (read 2 floppy sectors and increase LBA)
-                    // on cluster boundary, get next cluster number and calculate LBA  ( only if cluster on SD card is less than 4k !!! )
-                    if( chained )
-                        if ( ( (track_sect++ + 1) % fat.csize) == 0 )
-                            fat.dsect = fat.database + (cluster_chain[chain_index++]-2) * fat.csize;
-                  
-                    card_read_sector(sector_data,fat.dsect++); // read 2 floppy sectors from SD card (1 SD card sector) and increase LBA
-                }                                        
-                
+                    if(sector % 2 == 1)
+                    {
+                        // read second half of sector on SD card, even flopy sector
+                        for(uint8_t i=0 ;; i++) { SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF); sector_data[i]=SPDR; if(i==0xFF) break;} // read 256 bytes of data
+                        DESELECT();
+                        if(sdhc) fat.dsect++; else fat.dsect += 512;
+                    }
+                    else
+                    {
+                        // on cluster boundary, get next cluster number and calculate LBA  ( only if cluster on SD card is less than 4k !!! )
+                        if( chained )
+                            if ( ( ++track_sect % fat.csize) == 0 )
+                                fat.dsect = fat.database + (cluster_chain[chain_index++]-2) * fat.csize;
+                READ_FIRST:
+                        // read first half of sector on SD card, odd flopy sector, and increase LBA
+                        send_cmd(CMD17, fat.dsect, 0);
+                        do{ SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF); } while (SPDR == 0xFF && data_sent); // wait for CARD is ready to transmit block of data
+                        for(uint8_t i=0 ;; i++) { SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF); sector_data[i]=SPDR; if(i==0xFF) break;} // read 256 bytes of data
+                        
+                        if(sector == 0) USART_enable(); // Enable DATA transmit interrupt
+                    }
+                }
+
                 while(data_sent == 1); // wait whule data is start transmitting
         
             } while ( !(PIND & ( _BV(MOTOR_ON) | _BV(DRIVE_SEL) )) ); // READ DATA SEND LOOP END
@@ -429,5 +447,4 @@ int main() {
     } // MAIN LOOP END
   
 } // END MAIN
-
 
