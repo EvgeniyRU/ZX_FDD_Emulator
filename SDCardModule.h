@@ -28,6 +28,43 @@ typedef enum {
 } CRESULT;
 
 
+/** Card IDentification (CID) register */
+typedef struct CID_s {
+  // byte 0
+  /** Manufacturer ID */
+  unsigned char mid;
+  // byte 1-2
+  /** OEM/Application ID */
+  char oid[2];
+  // byte 3-7
+  /** Product name */
+  char pnm[5];
+  // byte 8
+  /** Product revision least significant digit */
+  unsigned char prv_m : 4;
+  /** Product revision most significant digit */
+  unsigned char prv_n : 4;
+  // byte 9-12
+  /** Product serial number */
+  uint32_t psn;
+  // byte 13
+  /** Manufacturing date year low digit */
+  unsigned char mdt_year_high : 4;
+  /** not used */
+  unsigned char reserved : 4;
+  // byte 14
+  /** Manufacturing date month */
+  unsigned char mdt_month : 4;
+  /** Manufacturing date year low digit */
+  unsigned char mdt_year_low :4;
+  // byte 15
+  /** not used always 1 */
+  unsigned char always1 : 1;
+  /** CRC7 checksum */
+  unsigned char crc : 7;
+}__attribute__((packed)) cid_t;
+
+
 #define STA_NOINIT    0x01  // Drive not initialized
 #define STA_NODISK    0x02  // No medium in the drive
 
@@ -70,6 +107,10 @@ CRESULT card_readp (void *, uint32_t, uint16_t, uint16_t);
 
 /// Read full sector
 void card_read_sector (void *, uint32_t);
+
+
+/// Read card serial number
+uint32_t card_read_serial();
 
 /// ----------------------------------------------------------------------------------------------------------------
 

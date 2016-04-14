@@ -146,7 +146,7 @@ ISR(USART_UDRE_vect)
 
         // GET NEXT DATA BYTE (REAL DATA NOT MFM)
         switch (state)
-        {          
+        {
           case 0: // start BEFORE TRACK GAP -------------------------------------
             b_index = 0;
             state = 1;
@@ -249,7 +249,7 @@ ISR(USART_UDRE_vect)
           case 9:
             if (++b_index != 60) break; // 60 in TR-DOS
             if (sector != 16)
-            {                
+            {
                 state = 4;
                 b_index = 0;
                 break;
@@ -309,8 +309,12 @@ int main() {
         /// MAIN LOOP USED FOR SELECT and INIT SD CARD and other
       
         //>>>>>> print "NO CARD PRESENT" on LCD
+     MOUNT:
+        pf_mount(0);
         while(pf_mount(&fat) != FR_OK);
         //>>>>>> print "CARD INFO etc..."
+
+        //uint32_t serial = card_read_serial();
 
         //>>>>>> SELECT TRD IMAGE HERE
 
@@ -319,50 +323,52 @@ int main() {
         uint8_t clusters_per_track = 8 / fat.csize;
         uint8_t tracks_per_cluster = fat.csize / 8;
     
-            /////////////////////////////////////////////////////////////////
-            // INIT after drive selected
-            
-            if(pf_open("default.trd") != FR_OK) break; // if unable to open file, usually if SD card is removed
+        /////////////////////////////////////////////////////////////////
+        // MOUNT TRD IMAGE and init Track Cluster table
+        ///////////////////////////////////////////////////////////////////////////////////////////////////
+        // --------------------------------------------------------------------------------------------------------------------------------
+        if(pf_open("default.trd") != FR_OK) goto MOUNT; // if unable to open file, usually if SD card is removed
 
-            max_track = fat.fsize / 4096;
-            if(fat.fsize % 4096 > 0) max_track++;
-            if( max_track > MAX_TRACK) max_track = MAX_TRACK; // calculate maximal cylinder
-            max_cylinder = max_track / 2 + max_track % 2; // calculate maximal cylinder
+        max_track = fat.fsize / 4096;
+        if(fat.fsize % 4096 > 0) max_track++;
+        if( max_track > MAX_TRACK) max_track = MAX_TRACK; // calculate maximal cylinder
+        max_cylinder = max_track / 2 + max_track % 2; // calculate maximal cylinder
 
-            /// FAST create cluster table for tracks ----------------------------------------------------------------------------------------
-            clust_table[0] = fat.org_clust;
-            uint32_t cur_fat, cur_fat_sector = fat.org_clust / 64;
-            card_readp(sector_data, fat.fatbase + cur_fat_sector/2, (cur_fat_sector%2)*256, 256); // read data_block with start cluster number            
-            for(uint8_t i = 1; i < max_track; i++) 
-            {
-                cur_fat = clust_table[i-1];
-                                
-                if(tracks_per_cluster == 0)
-                { // if cluster < 4k
-                    for(uint8_t k = 0; k < clusters_per_track; k++)
+        /// FAST create cluster table for tracks ----------------------------------------------------------------------------------------
+        clust_table[0] = fat.org_clust;
+        uint32_t cur_fat, cur_fat_sector = fat.org_clust / 64;
+        card_readp(sector_data, fat.fatbase + cur_fat_sector/2, (cur_fat_sector%2)*256, 256); // read data_block with start cluster number            
+        for(uint8_t i = 1; i < max_track; i++) 
+        {
+            cur_fat = clust_table[i-1];
+
+            if(tracks_per_cluster == 0)
+            { // if cluster < 4k
+                for(uint8_t k = 0; k < clusters_per_track; k++)
+                {
+                    if( (cur_fat / 64) != cur_fat_sector )
                     {
-                        if( (cur_fat / 64) != cur_fat_sector )
-                        {
-                            cur_fat_sector = cur_fat / 64;
-                            card_readp(sector_data, fat.fatbase + cur_fat_sector/2, (cur_fat_sector%2)*256, 256); // read data_block with current cluster number
-                        }
-                        cur_fat = (uint32_t)(*(uint32_t*)(sector_data + ((uint8_t)cur_fat % 64) * 4));
+                        cur_fat_sector = cur_fat / 64;
+                        card_readp(sector_data, fat.fatbase + cur_fat_sector/2, (cur_fat_sector%2)*256, 256); // read data_block with current cluster number
                     }
+                    cur_fat = (uint32_t)(*(uint32_t*)(sector_data + ((uint8_t)cur_fat % 64) * 4));
                 }
-                else
-                { // if cluster >= 4k
-                    if( i % tracks_per_cluster == 0)
+            }
+            else
+            { // if cluster >= 4k
+                if( i % tracks_per_cluster == 0)
+                {
+                    if( (cur_fat / 64) != cur_fat_sector )
                     {
-                        if( (cur_fat / 64) != cur_fat_sector )
-                        {
-                            cur_fat_sector = cur_fat / 64;
-                            card_readp(sector_data, fat.fatbase + cur_fat_sector/2, (cur_fat_sector%2)*256, 256); // read data_block with current cluster number
-                        }
-                        cur_fat = (uint32_t)(*(uint32_t*)(sector_data + ((uint8_t)cur_fat % 64) * 4));
+                        cur_fat_sector = cur_fat / 64;
+                        card_readp(sector_data, fat.fatbase + cur_fat_sector/2, (cur_fat_sector%2)*256, 256); // read data_block with current cluster number
                     }
-                }   
+                    cur_fat = (uint32_t)(*(uint32_t*)(sector_data + ((uint8_t)cur_fat % 64) * 4));
+                }
+            }   
                 clust_table[i] = cur_fat;
-            } // --------------------------------------------------------------------------------------------------------------------------------
+        } // --------------------------------------------------------------------------------------------------------------------------------
+        ///////////////////////////////////////////////////////////////////////////////////////////////////
 
             cylinder = 0;
 
@@ -370,7 +376,7 @@ int main() {
         while (1)
         { /// DRIVE SELECT LOOP
 
-            uint8_t chain_index, track, track_sect;
+            uint8_t chain_index, track, track_sect, no_read_error;
 
             while ( PIND & (_BV(MOTOR_ON) | _BV(DRIVE_SEL)) ); // wait drive select && motor_on
 
@@ -381,11 +387,15 @@ int main() {
                         
             PCINT2_enable(); // ENABLE INDERRUPT (STEP pin)
 
+            //check SD Card is present and same card as was mounted
+            //if(serial != card_read_serial()) break; // exit from loop if card is not present or another card.
+
             // update values for current track
             data_sent = 2;
             cylinder_changed = 1;
-
-            do { // READ DATA SEND LOOP (send data from FDD to FDD controller)  
+            no_read_error = 0;
+            
+            do { // READ DATA LOOP (send data from FDD to FDD controller)  
             //-------------------------------------------------------------------------------------------
                 while (data_sent == 0); // wait until sector data of track is not completely sent
                 
@@ -396,18 +406,11 @@ int main() {
                     if(cylinder_changed)
                     {
                         send_cmd(CMD12, 0, 0); // stop sd transmission
-                        do {
-                            cylinder_changed = 0;
-                            t_millis = 0;
-                            TCCR0B = 3;    // 3 = 1024mcs overflow ~ 1ms
-                            TIMSK0 = 1;   // enable timer interrupt
-                            while(easy_millis() < 4);
-                            TIMSK0 = 0;
-                        } while(cylinder_changed);                   
+                        // wait 15ms after track changed, this is good for side detection
                         t_millis = 0;
                         TCCR0B = 3;    // 3 = 1024mcs overflow ~ 1ms
                         TIMSK0 = 1;   // enable timer interrupt
-                        while(easy_millis() < 12);
+                        while(easy_millis() < 15);
                         TIMSK0 = 0;
                     }
 
@@ -450,8 +453,11 @@ int main() {
                     if(sector % 2 == 1)
                     {
                         // read second half of sector on SD card, even flopy sector
-                        for(uint8_t i=0 ;; i++) { SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF); sector_data[i]=SPDR; if(i==0xFF) break;} // read 256 bytes of data
-                        DESELECT();
+                        if(no_read_error)
+                        {
+                            for(uint8_t i=0 ;; i++) { SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF); sector_data[i]=SPDR; if(i==0xFF) break;} // read 256 bytes of data
+                            DESELECT();
+                        } else break;
                         if(sdhc) fat.dsect++; else fat.dsect += 512;
                     }
                     else
@@ -462,10 +468,13 @@ int main() {
                                 fat.dsect = fat.database + (cluster_chain[chain_index++]-2) * fat.csize;
                 READ_FIRST:
                         // read first half of sector on SD card, odd flopy sector, and increase LBA
-                        send_cmd(CMD17, fat.dsect, 0);
-                        do{ SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF); } while (SPDR == 0xFF && data_sent); // wait for CARD is ready to transmit block of data
-                        for(uint8_t i=0 ;; i++) { SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF); sector_data[i]=SPDR; if(i==0xFF) break;} // read 256 bytes of data
-                        
+                        no_read_error = 0;
+                        if( !send_cmd(CMD17, fat.dsect, 0) )
+                        {
+                            do{ SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF); } while (SPDR == 0xFF && data_sent); // wait for CARD is ready to transmit block of data
+                            for(uint8_t i=0 ;; i++) { SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF); sector_data[i]=SPDR; if(i==0xFF) break;} // read 256 bytes of data
+                            no_read_error = 1;
+                        } else break;
                         if(sector == 0) USART_enable(); // Enable DATA transmit interrupt
                     }
                 }
@@ -480,9 +489,11 @@ int main() {
             DDRD &= ~(_BV(WP) | _BV(TRK00)); // Set WP,TRK00 as input
 
             /// DEVICE DISABLED =========================================================================================================================
+            
+            if(!no_read_error) break;
 
-        } /// DRIVE SELECT LOOP END
-      
+        } /// DRIVE SELECT LOOP END        
+        
     } // MAIN LOOP END
   
 } // END MAIN

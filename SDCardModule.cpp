@@ -7,6 +7,7 @@
 
 static uint8_t CardType;
 static uint8_t resp_buf[4];
+static cid_t CID;
 
 uint8_t getCardType()
 {
@@ -69,6 +70,7 @@ uint8_t send_cmd(uint8_t cmd, uint32_t param, uint8_t cnt)
 CSTATUS card_initialize (void)
 {
   uint8_t cmd, n;
+  uint16_t tmr;
 
   CardType = 0;
 
@@ -82,10 +84,8 @@ CSTATUS card_initialize (void)
       if (resp_buf[2] == 0x01 && resp_buf[3] == 0xAA)
       { // Supports voltage 2.7-3.6V        
         // Wait for leaving Idle state (ACMD41 with HCS bit)
-        while( (n = send_cmd(ACMD41, 1UL << 30, 0)) == 1);
-              if( n > 1 ) return STA_NOINIT;
-
-        if (send_cmd(CMD58, 0, 4) == 0) // Check for SDHC type (if CCS bit set in the OCR)
+        for (tmr = 25000; tmr && send_cmd(ACMD41, 1UL << 30, 0); tmr--) ;  /* Wait for leaving idle state (ACMD41 with HCS bit) */
+        if (tmr && send_cmd(CMD58, 0, 4) == 0)    /* Check CCS bit in the OCR */        
           CardType = (resp_buf[0] & 0x40) ? CT_SD2 | CT_SDHC : CT_SD2;
       }
     }
@@ -101,11 +101,10 @@ CSTATUS card_initialize (void)
         CardType = CT_MMC;
         cmd = CMD1;
       }
-      
-      while( (n = send_cmd(cmd, 0, 0)) == 1);
-      if( n > 1 ) return STA_NOINIT;
 
-      if (send_cmd(CMD16, 512, 0) != 0) CardType = 0; // Set R/W block length to 512        
+      for (tmr = 25000; tmr && send_cmd(cmd, 0, 0); tmr--) ;  /* Wait for leaving idle state */
+
+      if (!tmr || send_cmd(CMD16, 512, 0) != 0) CardType = 0; // Set R/W block length to 512        
     }
   }
 
@@ -185,10 +184,9 @@ void card_read_sector (
       SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF);
       SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF);
     }
+    DESELECT();
+    SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF);
   }
-
-  DESELECT();
-  SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF);
 }
 
 /// Write sector
@@ -233,5 +231,18 @@ CRESULT card_writep (
   return res;
 }
 
+/// Read CID
+uint32_t card_read_serial()
+{
+  uint8_t* ptr = (uint8_t*)&CID;
+  uint8_t res = 0;
+  if (send_cmd(CMD10, 0, 0) == 0)
+  { // READ_CID
+      for(uint8_t i = 0; i < 16; i++) { SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF); *ptr++=SPDR; }
+      DESELECT();
+      res = CID.psn;
+  }
+  return res;
+}
 
 /// ----------------------------------------------------------------------------------------------------------------
