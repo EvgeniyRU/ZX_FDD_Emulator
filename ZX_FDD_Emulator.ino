@@ -103,7 +103,7 @@ ISR (TIMER0_OVF_vect)    // timer0 interrupt service routine
 ///
 /// STEP pin interrupt
 ///////////////////////////////////////////
-ISR(PCINT2_vect, ISR_NAKED)
+ISR(PCINT2_vect)
 {
     if(PIND & _BV(STEP)) // rising edge
     {
