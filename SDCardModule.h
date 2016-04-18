@@ -106,7 +106,7 @@ CSTATUS card_initialize (void);
 CRESULT card_readp (void *, uint32_t, uint16_t, uint16_t);
 
 /// Read full sector
-void card_read_sector (void *, uint32_t);
+CRESULT  card_read_sector (void *, uint32_t);
 
 
 /// Read card serial number

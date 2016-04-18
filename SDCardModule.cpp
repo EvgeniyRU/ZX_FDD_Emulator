@@ -163,7 +163,7 @@ CRESULT card_readp (
   
 
 /// Read full sector
-void card_read_sector (
+CRESULT card_read_sector (
   void *dest,     // Pointer to the destination object to put data
   uint32_t lba     // Start sector number (LBA)
 )
@@ -186,7 +186,9 @@ void card_read_sector (
     }
     DESELECT();
     SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF);
+    return RES_OK;
   }
+  return RES_ERROR;
 }
 
 /// Write sector
