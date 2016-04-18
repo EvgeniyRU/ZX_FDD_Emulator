@@ -137,7 +137,7 @@ asm("INC_CYL:");
   asm("brne END_PCINT");
   asm("dec r4");
 asm("END_PCINT:");
-  asm("sts 0xC1, 0x00");
+  asm("sts 0xC1, r1");
  data_sent = 2;
   asm("out 0x3F,r16");
   asm("pop r16");
@@ -207,7 +207,7 @@ ISR(USART_UDRE_vect)
                 // Address field CRC Calculation
                 case 0: 
                         CRC.val = 0xB230;
-                        if (side == 0 && side == (PIND & 1)) CRC.bytes.low = 0; // set wrong CRC if side is wrong for SIDE - HIGH
+                        if (side == 0 && side == (PIND & 1) ) CRC.bytes.low = 0; // set wrong CRC if side is wrong for SIDE - HIGH
                         sector_byte = 0;                        
                         break;
                 case 3: CRC_tmp = pgm_read_word_near(Crc16Table + (CRC.bytes.high ^ s_cylinder)); break;
@@ -340,6 +340,7 @@ int main() {
         uint8_t chained = fat.csize < 8;
         uint8_t clusters_per_track = 8 / fat.csize;
         uint8_t tracks_per_cluster = fat.csize / 8;
+        uint8_t read_error = 0;
     
         /////////////////////////////////////////////////////////////////
         // MOUNT TRD IMAGE and init Track Cluster table
@@ -414,7 +415,7 @@ int main() {
             
             do { // READ DATA LOOP (send data from FDD to FDD controller)  
             //-------------------------------------------------------------------------------------------
-                while (data_sent == 0 && !(PIND & ( _BV(MOTOR_ON) | _BV(DRIVE_SEL) )) ); // wait until sector data of track is not completely sent
+                while (data_sent == 0 && !(PIND & ( _BV(MOTOR_ON) | _BV(DRIVE_SEL) ))); // wait until sector data of track is not completely sent                
                 
                 if( data_sent == 2 ) // initialize track data for next round
                 {
@@ -424,20 +425,20 @@ int main() {
                         t_millis = 0;
                         TCCR0B = 3;    // 3 = 1024mcs overflow ~ 1ms
                         TIMSK0 = 1;   // enable timer interrupt
-                        while(easy_millis() < 5);
+                        while(easy_millis() < 6);
                         TIMSK0 = 0;
                     } while(data_sent == 2);
                         
                     t_millis = 0;
                     TCCR0B = 3;    // 3 = 1024mcs overflow ~ 1ms
                     TIMSK0 = 1;   // enable timer interrupt
-                    while(easy_millis() < 9);
+                    while(easy_millis() < 8);
                     TIMSK0 = 0;
 
                  INIT_TRACK:
+                    // set initial values for current track
                     side = ((~PIND) & 1);
                     s_cylinder = get_cylinder();  // current Floppy cylinder
-                    // set initial values for current track
                     track = s_cylinder * 2 + side; // track number
                     track_sect = track * 8;
                     cur_fat = clust_table[track];
@@ -462,11 +463,10 @@ int main() {
                     
                     //>>>>>> print "CYLINDER, HEAD INFO" or track number on LCD
                      
+                    if(card_read_sector(sector_data,fat.dsect++) != RES_OK) { read_error = 1; break; }
+                    if(s_cylinder != get_cylinder() || side == (PIND & 1)) goto INIT_TRACK;
                     sector_byte = 0x4E;
                     state = sector = tmp = 0;
-                    if(card_read_sector(sector_data,fat.dsect++) != RES_OK) break;                    
-                    data_sent = 0;
-                    if(s_cylinder != get_cylinder()) goto INIT_TRACK;
                     USART_enable(); // Enable DATA transmit interrupt
                 }
                 else
@@ -478,7 +478,7 @@ int main() {
                         if ( ( ++track_sect % fat.csize) == 0 )
                              fat.dsect = fat.database + (cluster_chain[chain_index++]-2) * fat.csize;
 
-                    if(card_read_sector(sector_data,fat.dsect++) != RES_OK) break;
+                    if(card_read_sector(sector_data,fat.dsect++) != RES_OK) { read_error = 1; break; }
                 }
         
             } while( !(PIND & ( _BV(MOTOR_ON) | _BV(DRIVE_SEL) )) ); // READ DATA SEND LOOP END
@@ -487,6 +487,7 @@ int main() {
             PCINT2_disable(); // DISABLE INDERRUPT (STEP pin)
             USART_disable(); // disable interrupt after sending track
             DDRD &= ~(_BV(WP) | _BV(TRK00)); // Set WP,TRK00 as input            
+            if(read_error) break;
 
             /// DEVICE DISABLED =========================================================================================================================
             
