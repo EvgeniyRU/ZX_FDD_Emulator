@@ -114,34 +114,50 @@ uint8_t get_cylinder()
 ///////////////////////////////////////////
 ISR(PCINT2_vect, ISR_NAKED)
 {
-  asm("sbis 0x09,4"); // if STEP == 0 exit (rising edge detect)
-  asm("reti");
-  
-  asm("push r16"); // store r16
-  asm("in r16,0x3F"); // store sreg
-  asm("sbis 0x09,5");
-  asm("rjmp INC_CYL");
-  // decrease cylinder
-  asm("dec r4");
-  asm("breq SET_TRK00");
-  asm("brcc END_PCINT");
-  asm("clr r4");
-asm("SET_TRK00:");
-  asm("cbi 0x0B,3"); // set TRK00 - LOW
-  asm("rjmp END_PCINT");
-asm("INC_CYL:");
-  // increase cylinder
-  asm("inc r4");
-  asm("sbi 0x0B,3"); // set TRK00 - HIGH
-  asm("cp r4,r5");
-  asm("brne END_PCINT");
-  asm("dec r4");
-asm("END_PCINT:");
-  asm("sts 0xC1, r1");
- data_sent = 2;
-  asm("out 0x3F,r16");
-  asm("pop r16");
-  asm("reti");
+  asm volatile(
+    "sbis %0,%1\n\t" :: "I" _SFR_IO_ADDR(PIND), "I" (STEP) // check for rising edge
+  );
+  asm volatile(
+    "reti"              "\n\t"
+    "push r16"          "\n\t"
+    "in r16,0x3F"       "\n\t" // store sreg
+  );
+  asm volatile(
+    "sbis %0,%1\n\t" :: "I" _SFR_IO_ADDR(PIND), "I" (DIR_SEL)
+  );
+  asm volatile(
+    "rjmp INC_CYL"    "\n\t"
+    // decrease cylinder
+    "tst r4"          "\n\t"
+    "breq END_PCINT"  "\n\t"
+    "dec r4"          "\n\t"
+    "brne END_PCINT"  "\n\t"
+  );
+  asm volatile(
+    "cbi %0,%1\n\t" :: "I" _SFR_IO_ADDR(PORTD), "I" (TRK00)
+  );
+  asm volatile(
+    "rjmp END_PCINT"  "\n\t"
+"INC_CYL:"            "\n\t"
+    // increase cylinder
+    "inc r4"          "\n\t"
+  );
+  asm volatile(
+    "sbi %0,%1\n\t" :: "I" _SFR_IO_ADDR(PORTD), "I" (TRK00)
+  );
+  asm volatile(
+    "cp r4,r5"        "\n\t"
+    "brne END_PCINT"  "\n\t"
+    "dec r4"          "\n\t"
+"END_PCINT:"          "\n\t"
+    "sts 0xC1, r1"    "\n\t"  // USART_disable()
+  );
+  data_sent = 2;
+  asm volatile(
+    "out 0x3F,r16"    "\n\t"
+    "pop r16"         "\n\t"
+    "reti"            "\n\t"
+  );
 }
 
 
@@ -208,7 +224,7 @@ ISR(USART_UDRE_vect)
                 case 0: 
                         CRC.val = 0xB230;
                         if (side == 0 && side == (PIND & 1) ) CRC.bytes.low = 0; // set wrong CRC if side is wrong for SIDE - HIGH
-                        sector_byte = 0;                        
+                        sector_byte = 0;
                         break;
                 case 3: CRC_tmp = pgm_read_word_near(Crc16Table + (CRC.bytes.high ^ s_cylinder)); break;
                 case 4: CRC.val = (CRC.bytes.low * 256) ^ CRC_tmp; break;
@@ -278,8 +294,6 @@ ISR(USART_UDRE_vect)
         } // GET DATA BYTE END
 
     }
-
-    ISR_END:;
 }
 
 
@@ -390,7 +404,6 @@ int main() {
         ///////////////////////////////////////////////////////////////////////////////////////////////////
 
         cylinder = 0;
-        side = 0;
 
         while (1)
         { /// DRIVE SELECT LOOP
@@ -401,10 +414,9 @@ int main() {
 
             /// DEVICE ENABLED ==========================================================================================================================
             
+            if(cylinder == 0) PORTD &= ~_BV(TRK00); else PORTD |= _BV(TRK00); // Set TRK00 - LOW or HIGH
             PCINT2_enable(); // ENABLE INDERRUPT (STEP pin)
             DDRD |= _BV(WP) | _BV(TRK00); // set WRITE PROTECT, set TRK00 as output
-
-            if(cylinder == 0) PORTD &= ~_BV(TRK00); else PORTD |= _BV(TRK00); // Set TRK00 - LOW or HIGH
 
             //check SD Card is present and same card as was mounted
             //if(serial != card_read_serial()) break; // exit from loop if card is not present or another card.
@@ -415,7 +427,7 @@ int main() {
             
             do { // READ DATA LOOP (send data from FDD to FDD controller)  
             //-------------------------------------------------------------------------------------------
-                while (data_sent == 0 && !(PIND & ( _BV(MOTOR_ON) | _BV(DRIVE_SEL) ))); // wait until sector data of track is not completely sent                
+                while (data_sent == 0); // wait until sector data of track is not completely sent                
                 
                 if( data_sent == 2 ) // initialize track data for next round
                 {
@@ -425,14 +437,14 @@ int main() {
                         t_millis = 0;
                         TCCR0B = 3;    // 3 = 1024mcs overflow ~ 1ms
                         TIMSK0 = 1;   // enable timer interrupt
-                        while(easy_millis() < 6);
+                        while(easy_millis() < 5);
                         TIMSK0 = 0;
-                    } while(data_sent == 2);
+                    } while(data_sent);
                         
                     t_millis = 0;
                     TCCR0B = 3;    // 3 = 1024mcs overflow ~ 1ms
                     TIMSK0 = 1;   // enable timer interrupt
-                    while(easy_millis() < 8);
+                    while(easy_millis() < 9);
                     TIMSK0 = 0;
 
                  INIT_TRACK:
@@ -471,7 +483,7 @@ int main() {
                 }
                 else
                 {
-                    data_sent = 0;                   
+                    data_sent = 0;
                     // FAST SD card sector loading (read 2 floppy sectors and increase LBA)
                     // on cluster boundary, get next cluster number and calculate LBA  ( only if cluster on SD card is less than 4k !!! )
                     if( chained )
@@ -480,13 +492,14 @@ int main() {
 
                     if(card_read_sector(sector_data,fat.dsect++) != RES_OK) { read_error = 1; break; }
                 }
+
         
             } while( !(PIND & ( _BV(MOTOR_ON) | _BV(DRIVE_SEL) )) ); // READ DATA SEND LOOP END
             //-------------------------------------------------------------------------------------------
-    
             PCINT2_disable(); // DISABLE INDERRUPT (STEP pin)
             USART_disable(); // disable interrupt after sending track
-            DDRD &= ~(_BV(WP) | _BV(TRK00)); // Set WP,TRK00 as input            
+            DDRD &= ~_BV(READ_DATA);
+            DDRD &= ~(_BV(WP) | _BV(TRK00)); // Set WP,TRK00 as input
             if(read_error) break;
 
             /// DEVICE DISABLED =========================================================================================================================
