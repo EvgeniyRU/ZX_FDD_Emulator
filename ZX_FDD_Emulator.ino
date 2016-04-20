@@ -32,14 +32,12 @@ uint8_t sector_data[2][256]; // sector data
 uint32_t clust_table[MAX_TRACK]; // Cluster table
 uint32_t cluster_chain[8]; // max cluster chain 8 is for 512 bytes cluster or less if higher
 
-uint8_t state, max_track, sector, tmp, side, prev_byte, s_cylinder;
-volatile uint8_t data_sent; // this is important!!!
+uint8_t state, max_track, sector, tmp, side, prev_byte, s_cylinder, max_cylinder, cylinder;
+volatile uint8_t data_sent, cylinder_changed, side2; // this is important!!!
 uint16_t CRC_tmp;
 union { uint16_t val; struct { byte low; byte high; } bytes; } CRC;
 register volatile uint8_t sector_byte asm("r2");
 register volatile uint8_t b_index asm("r3");
-register volatile uint8_t cylinder asm("r4");
-register volatile uint8_t max_cylinder asm("r5");
 
 // MFM table for fast converting
 uint8_t MFM_tab[32] = { 0xAA,0xA9,0xA4,0xA5,0x92,0x91,0x94,0x95,0x4A,0x49,0x44,0x45,0x52,0x51,0x54,0x55,0x2A,0x29,0x24,0x25,0x12,0x11,0x14,0x15,0x4A,0x49,0x44,0x45,0x52,0x51,0x54,0x55,};
@@ -112,52 +110,32 @@ uint8_t get_cylinder()
 ///
 /// STEP pin interrupt
 ///////////////////////////////////////////
-ISR(PCINT2_vect, ISR_NAKED)
+ISR(PCINT2_vect)
 {
-  asm volatile(
-    "sbis %0,%1\n\t" :: "I" _SFR_IO_ADDR(PIND), "I" (STEP) // check for rising edge
-  );
-  asm volatile(
-    "reti"              "\n\t"
-    "push r16"          "\n\t"
-    "in r16,0x3F"       "\n\t" // store sreg
-  );
-  asm volatile(
-    "sbis %0,%1\n\t" :: "I" _SFR_IO_ADDR(PIND), "I" (DIR_SEL)
-  );
-  asm volatile(
-    "rjmp INC_CYL"    "\n\t"
-    // decrease cylinder
-    "tst r4"          "\n\t"
-    "breq END_PCINT"  "\n\t"
-    "dec r4"          "\n\t"
-    "brne END_PCINT"  "\n\t"
-  );
-  asm volatile(
-    "cbi %0,%1\n\t" :: "I" _SFR_IO_ADDR(PORTD), "I" (TRK00)
-  );
-  asm volatile(
-    "rjmp END_PCINT"  "\n\t"
-"INC_CYL:"            "\n\t"
-    // increase cylinder
-    "inc r4"          "\n\t"
-  );
-  asm volatile(
-    "sbi %0,%1\n\t" :: "I" _SFR_IO_ADDR(PORTD), "I" (TRK00)
-  );
-  asm volatile(
-    "cp r4,r5"        "\n\t"
-    "brne END_PCINT"  "\n\t"
-    "dec r4"          "\n\t"
-"END_PCINT:"          "\n\t"
-    "sts 0xC1, r1"    "\n\t"  // USART_disable()
-  );
-  data_sent = 2;
-  asm volatile(
-    "out 0x3F,r16"    "\n\t"
-    "pop r16"         "\n\t"
-    "reti"            "\n\t"
-  );
+    asm volatile(
+      "sbis %0,%1\n\t" :: "I" _SFR_IO_ADDR(PIND), "I" (STEP) // check for rising edge
+    );
+    asm ("rjmp PCINT_END");
+    side = (~PIND) & 1;
+
+    cylinder_changed = 1;
+    if(PIND & _BV(DIR_SEL))
+    {
+        if(cylinder != 0)
+           cylinder -= 1;
+    }
+    else
+    {
+        if(cylinder + 1 < max_cylinder)
+           cylinder += 1;
+    }        
+    if(cylinder == 0) DDRD |= _BV(TRK00); else DDRD &= ~_BV(TRK00); // Set TRK00 - LOW or HIGH
+ 
+    USART_disable();
+    data_sent = 2; // set flag indicates end of track, for reinitialize track data and read new sectors
+    t_millis = 0;
+
+    asm("PCINT_END:");
 }
 
 
@@ -165,7 +143,7 @@ ISR(PCINT2_vect, ISR_NAKED)
 /// READ DATA interrupt
 ///////////////////////////////////////////
 ISR(USART_UDRE_vect)
-{ 
+{
     if (!tmp)
     { // Send first MFM byte
         tmp = MFM_tab[sector_byte >> 4]; // get first MFM byte from table
@@ -182,16 +160,16 @@ ISR(USART_UDRE_vect)
         // GET NEXT DATA BYTE (REAL DATA NOT MFM)
         switch (state)
         {
-          case 0: // start BEFORE TRACK GAP -------------------------------------
+          case 0: // start BEFORE TRACK GAP -------------------------------------            
             DDRB |= _BV(INDEX); // SET INDEX LOW
             b_index = 0;
             state = 1;
             break;
 
           case 1:
-            if (++b_index != 80) break;
-            DDRB &= ~_BV(INDEX); // SET INDEX HIGH            
-            state = 2;
+            if (++b_index != 10) break;
+            DDRB &= ~_BV(INDEX); // SET INDEX HIGH
+            state = 4;
             b_index = 0;            
             break;
 
@@ -221,9 +199,9 @@ ISR(USART_UDRE_vect)
             switch(b_index)
             {
                 // Address field CRC Calculation
-                case 0: 
+                case 0:                         
                         CRC.val = 0xB230;
-                        if (side == 0 && side == (PIND & 1) ) CRC.bytes.low = 0; // set wrong CRC if side is wrong for SIDE - HIGH
+                        if (side == 0 && side == (PIND & 1)) CRC.bytes.low = 0; // set wrong CRC if side is wrong for SIDE - HIGH
                         sector_byte = 0;
                         break;
                 case 3: CRC_tmp = pgm_read_word_near(Crc16Table + (CRC.bytes.high ^ s_cylinder)); break;
@@ -294,6 +272,7 @@ ISR(USART_UDRE_vect)
         } // GET DATA BYTE END
 
     }
+ ISR_END:;
 }
 
 
@@ -318,6 +297,7 @@ void emu_init()
     // INIT pins and ports
     PORTD |= _BV(STEP) | _BV(MOTOR_ON) | _BV(DRIVE_SEL) | _BV(DIR_SEL) | _BV(SIDE_SEL); // set pull-up
     DDRB &= ~_BV(INDEX); // SET INDEX HIGH
+    DDRD &= ~(_BV(WP) | _BV(TRK00) | _BV(READ_DATA)); // Set RD, WP,TRK00 as input
  
     // Init SPI for SD Card
     SPI_DDR = _BV(SPI_MOSI) | _BV(SPI_SCK) | _BV(SPI_CS); //set output mode for MOSI, SCK ! move SS to GND
@@ -403,53 +383,52 @@ int main() {
         } // --------------------------------------------------------------------------------------------------------------------------------
         ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-        cylinder = 0;
 
+        cylinder = 0;
+        cylinder_changed = 0;
+                
         while (1)
         { /// DRIVE SELECT LOOP
 
             uint8_t chain_index, track, track_sect;
 
+
             while ( PIND & (_BV(MOTOR_ON) | _BV(DRIVE_SEL)) ); // wait drive select && motor_on
 
             /// DEVICE ENABLED ==========================================================================================================================
             
-            if(cylinder == 0) PORTD &= ~_BV(TRK00); else PORTD |= _BV(TRK00); // Set TRK00 - LOW or HIGH
+            DDRD |= _BV(WP); // set WRITE PROTECT       
             PCINT2_enable(); // ENABLE INDERRUPT (STEP pin)
-            DDRD |= _BV(WP) | _BV(TRK00); // set WRITE PROTECT, set TRK00 as output
 
             //check SD Card is present and same card as was mounted
             //if(serial != card_read_serial()) break; // exit from loop if card is not present or another card.
 
-            // update values for current track
             data_sent = 2;
-            chain_index = 0;
-            
+    
             do { // READ DATA LOOP (send data from FDD to FDD controller)  
             //-------------------------------------------------------------------------------------------
                 while (data_sent == 0); // wait until sector data of track is not completely sent                
                 
                 if( data_sent == 2 ) // initialize track data for next round
                 {
-                    // Read first sector of the track and then start transmitting data
-                    do {
-                        ATOMIC_BLOCK(ATOMIC_FORCEON)data_sent = 0;
-                        t_millis = 0;
-                        TCCR0B = 3;    // 3 = 1024mcs overflow ~ 1ms
-                        TIMSK0 = 1;   // enable timer interrupt
-                        while(easy_millis() < 5);
-                        TIMSK0 = 0;
-                    } while(data_sent);
-                        
                     t_millis = 0;
                     TCCR0B = 3;    // 3 = 1024mcs overflow ~ 1ms
                     TIMSK0 = 1;   // enable timer interrupt
-                    while(easy_millis() < 9);
+                    while(easy_millis() < 5);
                     TIMSK0 = 0;
+                    
+                    if(cylinder_changed)
+                    {
+                        t_millis = 0;
+                        TCCR0B = 3;    // 3 = 1024mcs overflow ~ 1ms
+                        TIMSK0 = 1;   // enable timer interrupt
+                        while(easy_millis() < 11);
+                        TIMSK0 = 0;
+                        ATOMIC_BLOCK(ATOMIC_FORCEON)cylinder_changed = 0;
+                    }
 
-                 INIT_TRACK:
                     // set initial values for current track
-                    side = ((~PIND) & 1);
+                    side = (~PIND) & 1;
                     s_cylinder = get_cylinder();  // current Floppy cylinder
                     track = s_cylinder * 2 + side; // track number
                     track_sect = track * 8;
@@ -476,9 +455,10 @@ int main() {
                     //>>>>>> print "CYLINDER, HEAD INFO" or track number on LCD
                      
                     if(card_read_sector(sector_data,fat.dsect++) != RES_OK) { read_error = 1; break; }
-                    if(s_cylinder != get_cylinder() || side == (PIND & 1)) goto INIT_TRACK;
                     sector_byte = 0x4E;
-                    state = sector = tmp = 0;
+                    sector = tmp = 0;
+                    data_sent = 0;
+                    state = 0;                    
                     USART_enable(); // Enable DATA transmit interrupt
                 }
                 else
@@ -492,12 +472,11 @@ int main() {
 
                     if(card_read_sector(sector_data,fat.dsect++) != RES_OK) { read_error = 1; break; }
                 }
-
         
             } while( !(PIND & ( _BV(MOTOR_ON) | _BV(DRIVE_SEL) )) ); // READ DATA SEND LOOP END
             //-------------------------------------------------------------------------------------------
-            PCINT2_disable(); // DISABLE INDERRUPT (STEP pin)
             USART_disable(); // disable interrupt after sending track
+            PCINT2_disable(); // DISABLE INDERRUPT (STEP pin)
             DDRD &= ~_BV(READ_DATA);
             DDRD &= ~(_BV(WP) | _BV(TRK00)); // Set WP,TRK00 as input
             if(read_error) break;
@@ -509,5 +488,6 @@ int main() {
     } // MAIN LOOP END
   
 } // END MAIN
+
 
 
