@@ -337,8 +337,8 @@ int main()
             
             /// DEVICE ENABLED ==========================================================================================================================
 
+            if(cylinder == 0) DDRD |= _BV(TRK00);
             PCINT2_enable(); // ENABLE INDERRUPT (STEP pin)
-            if(get_cylinder() == 0) DDRD |= _BV(TRK00);
 
             DDRD |= _BV(WP); // set WRITE PROTECT       
 
