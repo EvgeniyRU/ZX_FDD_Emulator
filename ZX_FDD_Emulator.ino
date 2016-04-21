@@ -26,16 +26,18 @@ FATFS fat;
 /// EMULATOR START -------------------------------------------------------------------------------------------------
 
 #define MAX_CYL 82          /// maximal cylinder supported by FDD
-#define MAX_TRACK MAX_CYL*2 /// maximal track
 
 uint8_t sector_data[256]; // sector data
 uint32_t clust_table[MAX_CYL]; // Cluster table
 uint32_t sector_table[32]; // Cluster_table for sectors in track
 
-uint8_t state, max_track, tmp, prev_byte, max_cylinder, s_cylinder, sector, cylinder, side, sector_byte, b_index, s_sector;
+uint8_t state, tmp, prev_byte, max_cylinder, s_cylinder, cylinder, side, sector_byte;
 volatile uint8_t data_sent; // this is important!!!
-union { uint16_t val; struct { byte low; byte high; } bytes; } CRC_H;
-union { uint16_t val; struct { byte low; byte high; } bytes; } CRC_D;
+union { uint16_t val; struct { byte low; byte high; } bytes; } CRC_H, CRC_D;
+
+register volatile uint8_t sector asm("r2");
+register volatile uint8_t b_index asm("r3");
+
 
 // MFM table for fast converting
 uint8_t MFM_tab[32] = {
@@ -84,7 +86,11 @@ const uint16_t Crc16Table[256] PROGMEM = {
 ///////////////////////////////////////////
 void inline USART_enable() { UCSR0B = 0x28; }
 void inline USART_disable() { UCSR0B = 0x00; }
-void inline PCINT2_enable() { PCICR  |= _BV(PCIE2); }
+void inline PCINT2_enable()
+{
+    PCIFR  |= _BV(PCIE2); // reset interrupt flag
+    PCICR  |= _BV(PCIE2);
+}
 void inline PCINT2_disable() { PCICR &= ~_BV(PCIE2); }
 
 uint8_t t_millis = 0;
@@ -133,8 +139,7 @@ ISR(PCINT2_vect)
     USART_disable();
     data_sent = 3; // set flag indicates end of track, for reinitialize track data and read new sectors
     t_millis = 0;
-    
-    asm("PCINT_END:");
+asm("PCINT_END:");
 }
 
 
@@ -192,7 +197,7 @@ ISR(USART_UDRE_vect)
                case 15: sector_byte = 0xFE; MFM_tab[1] = 0xA9; break; //0x56; break;
                case 16: sector_byte = s_cylinder; break;
                case 17: sector_byte = side; break;
-               case 18: sector_byte = s_sector + 1; break;
+               case 18: sector_byte = sector + 1; break;
                case 19: sector_byte = 1; break;
                case 20: sector_byte = CRC_H.bytes.high; break;
                case 21: sector_byte = CRC_H.bytes.low; break;
@@ -272,8 +277,7 @@ void emu_init()
     UCSR0A = 0x00;
     UCSR0B = 0x00; // disabled
 
-    PCMSK2 |= _BV(PCINT20); // SET PCINT2 interrupt on PD4 (STEP pin)
-    PCIFR  |= _BV(PCIE2); // reset interrupt flag
+    PCMSK2 |= _BV(PCINT20); // SET PCINT2 interrupt on PD4 (STEP pin)    
 
     TCCR0A = 0;
 
@@ -295,8 +299,6 @@ void emu_init()
 ///////////////////////////////////////////
 int main()
 {
-    uint8_t sector_interleave[16] = { 0,8,1,9,2,10,3,11,4,12,5,13,6,14,7,15 };
-
     //init(); // init arduino libraries
 
     emu_init(); // initialize FDD emulator
@@ -347,18 +349,18 @@ int main()
 
         cylinder = 0;
         s_cylinder = 255;
-                
+
         while (1)
         { /// DRIVE SELECT LOOP
 
             while ( PIND & (_BV(MOTOR_ON) | _BV(DRIVE_SEL)) ); // wait drive select && motor_on
             
+            /// DEVICE ENABLED ==========================================================================================================================
+
+            PCINT2_enable(); // ENABLE INDERRUPT (STEP pin)
             if(cylinder == 0) DDRD |= _BV(TRK00);
 
-            /// DEVICE ENABLED ==========================================================================================================================
-            
             DDRD |= _BV(WP); // set WRITE PROTECT       
-            PCINT2_enable(); // ENABLE INDERRUPT (STEP pin)
 
             //check SD Card is present and same card as was mounted
             //if(serial != card_read_serial()) break; // exit from loop if card is not present or another card.
@@ -376,7 +378,7 @@ int main()
                     t_millis = 0;
                     TCCR0B = 3;    // 3 = 1024mcs overflow ~ 1ms
                     TIMSK0 = 1;   // enable timer interrupt
-                    while(easy_millis() < 5);
+                    while(easy_millis() < 10);
                     TIMSK0 = 0;
                     if(data_sent == 3)
                     {
@@ -421,18 +423,17 @@ int main()
                     t_millis = 0;
                     TCCR0B = 3;    // 3 = 1024mcs overflow ~ 1ms
                     TIMSK0 = 1;   // enable timer interrupt
-                    while(easy_millis() < 5);
+                    while(easy_millis() < 3);
                     TIMSK0 = 0;
             PREPARE_SECTOR:
-                    s_sector = sector_interleave[sector];
                     side = (~PIND) & 1;
-                    fat.dsect = fat.database + (sector_table[side*16 + s_sector] - 2) * fat.csize + ((s_cylinder*2 + side)*8 + s_sector/2) % fat.csize; // track start LBA number on SD card
-                    if(card_readp(sector_data,fat.dsect,(s_sector%2)*256,256) != RES_OK) { read_error = 1; break; }                    
+                    fat.dsect = fat.database + (sector_table[side*16 + sector] - 2) * fat.csize + ((s_cylinder*2 + side)*8 + sector/2) % fat.csize; // track start LBA number on SD card
+                    if(card_readp(sector_data,fat.dsect,(sector%2)*256,256) != RES_OK) { read_error = 1; break; }                    
 
                     CRC_H.val = 0xB230;
                     CRC_H.val = (CRC_H.bytes.low * 256) ^ pgm_read_word_near(Crc16Table + (CRC_H.bytes.high ^ s_cylinder));
                     CRC_H.val = (CRC_H.bytes.low * 256) ^ pgm_read_word_near(Crc16Table + (CRC_H.bytes.high ^ side));
-                    CRC_H.val = (CRC_H.bytes.low * 256) ^ pgm_read_word_near(Crc16Table + (CRC_H.bytes.high ^ s_sector+1));
+                    CRC_H.val = (CRC_H.bytes.low * 256) ^ pgm_read_word_near(Crc16Table + (CRC_H.bytes.high ^ sector+1));
                     CRC_H.val = (CRC_H.bytes.low * 256) ^ pgm_read_word_near(Crc16Table + (CRC_H.bytes.high ^ 1));
 
                     CRC_D.val = 0xE295;
@@ -450,7 +451,6 @@ int main()
             //-------------------------------------------------------------------------------------------
             USART_disable(); // disable interrupt after sending track
             PCINT2_disable(); // DISABLE INDERRUPT (STEP pin)
-            //DDRD &= ~_BV(READ_DATA);
             DDRD &= ~(_BV(WP) | _BV(TRK00)); // Set WP,TRK00 as input
             if(read_error) break;
 
