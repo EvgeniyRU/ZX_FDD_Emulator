@@ -348,14 +348,14 @@ int main()
                     t_millis = 0;
                     TCCR0B = 3;    // 3 = 1024mcs overflow ~ 1ms
                     TIMSK0 = 1;   // enable timer interrupt
-                    while(easy_millis() < 2);
+                    while(easy_millis() < 6);
                     TIMSK0 = 0;
                     if(data_sent == 3)
                     {
                       t_millis = 0;
                       TCCR0B = 3;    // 3 = 1024mcs overflow ~ 1ms
                       TIMSK0 = 1;   // enable timer interrupt
-                      while(easy_millis() < 12);
+                      while(easy_millis() < 8);
                       TIMSK0 = 0;
                     }
                                                              
