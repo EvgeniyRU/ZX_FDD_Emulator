@@ -160,34 +160,13 @@ ISR(USART_UDRE_vect)
             break;
 
           case 1:            
-            if (++b_index != 80) break;
+            if (++b_index != 10) break;
+            DDRB &= ~_BV(INDEX); // SET INDEX HIGH
             state = 2;
             b_index = 0;            
             break;
-
-          case 2: // track header (track C2 field) ------------------------------
-            // this field is important for stable work!!! but may be skipped :)
-            switch(b_index++)
-            {
-                 case 0: sector_byte = 0x00; break;
-                case 12: sector_byte = 0xC2; MFM_tab[2] = 0x24; break;
-                case 15: sector_byte = 0xFC; MFM_tab[2] = 0xA4; break;
-                case 16: sector_byte = 0x4E;
-                  b_index = 1;
-                  state = 3;
-                  break;
-            }
-            break;
             
-          case 3:
-            if (++b_index != 66) break;
-            DDRB &= ~_BV(INDEX); // SET INDEX HIGH
-            b_index = 0;
-            state = 4;
-            break;
-
-            
-          case 4: // SECTOR START (ADDERSS FIELD) ------------------------------
+          case 2: // SECTOR START (ADDERSS FIELD) ------------------------------
           {
             switch(b_index)
             {
@@ -210,38 +189,39 @@ ISR(USART_UDRE_vect)
             
             if (++b_index != 60) break;
             b_index = 0;
-            state = 5;
+            state = 3;
             break;
           }
-          case 5: // DATA FIELD ----------------------------------------------------
+          case 3: // DATA FIELD ----------------------------------------------------
             // get sector data values
             sector_byte = sector_data[b_index];   // pre-get new byte from buffer
-            if (++b_index == 0) state = 6;
+            if (++b_index == 0) state = 4;
             break;
         
-          case 6: // SEND SECTOR CRC -----------------------------------------------
-            // increase sector, set flag indicates end of 2 sectors, for reading new sectors
-            sector_byte = CRC_D.bytes.high;
-            state = 7;
+          case 4: // SEND SECTOR CRC AND START SECTOR GAP --------------------------
+            switch(b_index++)
+            {
+                case 0:
+                  sector_byte = CRC_D.bytes.high;
+                  break;
+                case 1:
+                  sector_byte = CRC_D.bytes.low;
+                  break;
+                case 2:
+                  sector_byte = 0x4E;
+                  state = 5;
+                  b_index = 0;
+                  break;
+            }
             break;
-
-          case 7:
-            sector_byte = CRC_D.bytes.low;
-            state = 8;
-            break;
-      
-          case 8: // SECTOR FOOTER -------------------------------------------------
-            sector_byte = 0x4E;
-            state = 9;
-            break;
-
-          case 9:
+            
+          case 5:
             if (++b_index != 54) break;
             if (++sector < 16)
             {
                 USART_disable();
-                tmp = 0;
-                state = 4;
+                tmp = b_index = 0;
+                state = 2;
                 data_sent = 1;
                 goto ISR_END;
             }
@@ -358,7 +338,7 @@ int main()
             /// DEVICE ENABLED ==========================================================================================================================
 
             PCINT2_enable(); // ENABLE INDERRUPT (STEP pin)
-            if(cylinder == 0) DDRD |= _BV(TRK00);
+            if(get_cylinder() == 0) DDRD |= _BV(TRK00);
 
             DDRD |= _BV(WP); // set WRITE PROTECT       
 
@@ -437,8 +417,7 @@ int main()
                       CRC_D.val = (CRC_D.bytes.low << 8) ^ pgm_read_word_near(Crc16Table + (CRC_D.bytes.high ^ sector_data[i]));
                       if(i==255) break;
                     }
-                    data_sent = 0;
-                    b_index = 0;
+                    data_sent = 0;                    
                     USART_enable(); // Enable DATA transmit interrupt
                 }
         
