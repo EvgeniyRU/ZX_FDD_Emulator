@@ -29,7 +29,7 @@ FATFS fat;
 
 uint8_t sector_data[256]; // sector data
 uint32_t clust_table[MAX_CYL]; // Cluster table
-uint32_t sector_table[32]; // Cluster_table for sectors in track
+uint32_t sector_table[32]; // Cluster table for sectors in cylinder
 
 uint8_t state, tmp, prev_byte, max_cylinder, s_cylinder, cylinder, side, sector_byte;
 volatile uint8_t data_sent; // this is important!!!
@@ -37,7 +37,6 @@ union { uint16_t val; struct { byte low; byte high; } bytes; } CRC_H, CRC_D;
 
 register volatile uint8_t sector asm("r2");
 register volatile uint8_t b_index asm("r3");
-
 
 // MFM table for fast converting
 uint8_t MFM_tab[32] = {
@@ -104,14 +103,6 @@ uint8_t easy_millis()
 ISR (TIMER0_OVF_vect)    // timer0 interrupt service routine
 {
     t_millis++;
-}
-
-
-uint8_t get_cylinder()
-{
-    uint8_t cyl;
-    ATOMIC_BLOCK(ATOMIC_FORCEON)cyl = cylinder;
-    return cyl;
 }
 
 ///
@@ -220,9 +211,8 @@ ISR(USART_UDRE_vect)
             if (++sector < 16)
             {
                 USART_disable();
-                tmp = b_index = 0;
-                state = 2;
                 data_sent = 1;
+                state = 2;
                 goto ISR_END;
             }
             USART_disable();
@@ -347,7 +337,7 @@ int main()
 
             data_sent = 2;
     
-            uint8_t track, track_sect, read_error = 0;
+            uint8_t read_error = 0;
 
             do { // READ DATA LOOP (send data from FDD to FDD controller)  
             //-------------------------------------------------------------------------------------------
@@ -369,9 +359,9 @@ int main()
                       TIMSK0 = 0;
                     }
                                                              
-                    if(s_cylinder != get_cylinder())
+                    if(s_cylinder != cylinder)
                     {
-                        s_cylinder = get_cylinder();
+                        s_cylinder = cylinder;
                         // create cluster table for cylinder sectors
                         cur_fat = clust_table[s_cylinder];
                         cur_fat_sector = cur_fat / 64;                    
@@ -393,9 +383,9 @@ int main()
                     }
 
                     //>>>>>> print "CYLINDER, HEAD INFO" or track number on LCD
-                    
+                                        
+                    sector = state = 0;
                     sector_byte = 0x4E;
-                    tmp = sector = state = 0;
                     goto PREPARE_SECTOR;
                 }
                 else
@@ -418,6 +408,7 @@ int main()
                       if(i==255) break;
                     }
                     data_sent = 0;                    
+                    tmp = b_index = 0;
                     USART_enable(); // Enable DATA transmit interrupt
                 }
         
