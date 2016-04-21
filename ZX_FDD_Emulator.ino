@@ -161,7 +161,6 @@ ISR(USART_UDRE_vect)
 
           case 1:            
             if (++b_index != 80) break;
-            DDRB &= ~_BV(INDEX); // SET INDEX HIGH
             state = 2;
             b_index = 0;            
             break;
@@ -182,6 +181,7 @@ ISR(USART_UDRE_vect)
             
           case 3:
             if (++b_index != 66) break;
+            DDRB &= ~_BV(INDEX); // SET INDEX HIGH
             b_index = 0;
             state = 4;
             break;
@@ -240,9 +240,9 @@ ISR(USART_UDRE_vect)
             if (++sector < 16)
             {
                 USART_disable();
-                data_sent = 1;
                 tmp = 0;
                 state = 4;
+                data_sent = 1;
                 goto ISR_END;
             }
             USART_disable();
@@ -378,14 +378,14 @@ int main()
                     t_millis = 0;
                     TCCR0B = 3;    // 3 = 1024mcs overflow ~ 1ms
                     TIMSK0 = 1;   // enable timer interrupt
-                    while(easy_millis() < 10);
+                    while(easy_millis() < 2);
                     TIMSK0 = 0;
                     if(data_sent == 3)
                     {
                       t_millis = 0;
                       TCCR0B = 3;    // 3 = 1024mcs overflow ~ 1ms
                       TIMSK0 = 1;   // enable timer interrupt
-                      while(easy_millis() < 8);
+                      while(easy_millis() < 12);
                       TIMSK0 = 0;
                     }
                                                              
@@ -420,11 +420,6 @@ int main()
                 }
                 else
                 {
-                    t_millis = 0;
-                    TCCR0B = 3;    // 3 = 1024mcs overflow ~ 1ms
-                    TIMSK0 = 1;   // enable timer interrupt
-                    while(easy_millis() < 3);
-                    TIMSK0 = 0;
             PREPARE_SECTOR:
                     side = (~PIND) & 1;
                     fat.dsect = fat.database + (sector_table[side*16 + sector] - 2) * fat.csize + ((s_cylinder*2 + side)*8 + sector/2) % fat.csize; // track start LBA number on SD card
