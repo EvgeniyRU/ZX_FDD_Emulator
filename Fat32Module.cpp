@@ -510,7 +510,8 @@ FRESULT pf_lseek (
   if (ofs > fs->fsize) ofs = fs->fsize; /* Clip offset with the file size */
   ifptr = fs->fptr;
   fs->fptr = 0;
-  if (ofs > 0) {
+  if (ofs > 0)
+  {
     bcs = (uint32_t)fs->csize * 512; /* Cluster size (byte) */
     if (ifptr > 0 &&
       (ofs - 1) / bcs >= (ifptr - 1) / bcs) { /* When seek to same or following cluster, */
@@ -532,6 +533,13 @@ FRESULT pf_lseek (
     sect = clust2sect(clst);    /* Current sector */
     if (!sect) return FR_DISK_ERR;
     fs->dsect = sect + ((fs->fptr >> 9) & (fs->csize - 1));
+  }
+  else
+  {
+    fs->curr_clust = fs->org_clust;
+    fs->fptr = 0;
+    fs->csect = clust2sect(fs->curr_clust);    /* Current sector */
+    fs->dsect = fs->csect + ((fs->fptr >> 9) & (fs->csize - 1));
   }
 
   return FR_OK;

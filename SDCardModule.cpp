@@ -158,7 +158,7 @@ CRESULT card_readp (
           }
       }
   }
-  return cnt ? RES_ERROR : RES_OK;
+  return RES_ERROR;
 }
   
 
