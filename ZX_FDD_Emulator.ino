@@ -317,8 +317,8 @@ int main()
                             case 0: sector_byte = 0; break;
                             case 12: sector_byte = 0xA1; MFM_tab_inv[1] = 0x76; break;
                             case 15: sector_byte = 0xFE; MFM_tab_inv[1] = 0x56; break;
-                            case 16: sector_byte = cylinder; break;
-                            case 17: sector_byte = (~PIND) & 1; break;
+                            case 16: sector_byte = s_cylinder; break;
+                            case 17: sector_byte = side; break;
                             case 18: sector_byte = sector + 1; break;
                             case 19: sector_byte = 1; break;
                             case 20: sector_byte = CRC_H.bytes.high; break;
