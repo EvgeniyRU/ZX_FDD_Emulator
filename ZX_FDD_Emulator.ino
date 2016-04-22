@@ -31,7 +31,11 @@ uint8_t sector_data[256]; // sector data
 uint32_t clust_table[MAX_CYL]; // Cluster table
 uint32_t sector_table[32]; // Cluster table for sectors in cylinder
 
-uint8_t prev_byte, cylinder_changed, max_cylinder, cylinder;
+uint8_t prev_byte;//, cylinder_changed, max_cylinder, cylinder;
+volatile register uint8_t cylinder_changed asm("r2");
+volatile register uint8_t max_cylinder asm("r3");
+volatile register uint8_t cylinder asm("r4");
+volatile register uint8_t sreg_save asm("r5");
 
 // inverted MFM table for fast converting
 uint8_t MFM_tab_inv[32] = {
@@ -90,15 +94,16 @@ void inline PCINT2_disable() { PCICR &= ~_BV(PCIE2); }
 ///
 /// STEP pin interrupt
 ///////////////////////////////////////////
-ISR(PCINT2_vect)
+/*ISR(PCINT2_vect)
 {
     asm volatile(
-      "sbis %0,%1\n\t"
-      "rjmp PCINT_END"
+      "sbic %0,%1"      "\n\t"
+      "rjmp PCINT_END"  "\n\t"
+      "sts 0xC1,r1"     "\n\t" // disable USART
       :: "I" _SFR_IO_ADDR(PIND), "I" (STEP) // check for rising edge
     );
 
-    USART_disable();
+    //USART_disable();
     cylinder_changed = 1;
     if(PIND & _BV(DIR_SEL))
     {
@@ -113,7 +118,42 @@ ISR(PCINT2_vect)
     if(cylinder == 0) DDRD |= _BV(TRK00); else DDRD &= ~_BV(TRK00); // Set TRK00 - LOW or HIGH
 
 asm("PCINT_END:");
+}*/
+
+ISR(PCINT2_vect, ISR_NAKED)
+{
+    asm volatile(
+      "sbic %0,%1"      "\n\t"  // check for falling edge
+      "reti"            "\n\t"
+
+      "sts 0xC1,r1"     "\n\t" // disable USART
+
+      "in r5,0x3F"      "\n\t"
+      "sbis %2,%3"      "\n\t"  // check for direction
+      "rjmp INC_CYL"    "\n\t"
+      
+      // decrease cylinder
+      "tst r4"          "\n\t"
+      "breq END_PCINT"  "\n\t"
+      "dec r4"          "\n\t"
+      "brne END_PCINT"  "\n\t"
+      "cbi %4,%5"       "\n\t"  // set TRK00 LOW if cylinder = 0
+      "rjmp END_PCINT"  "\n\t"
+ "INC_CYL:"             "\n\t"
+      // increase cylinder
+      "inc r4"          "\n\t"
+      "sbi %4,%5"       "\n\t"  // set TRK00 HIGH on inceasing
+      "cp r4,r3"        "\n\t"  // compare with max_cylinder
+      "brne END_PCINT"  "\n\t"
+      "dec r4"          "\n\t"
+ "END_PCINT:"           "\n\t"
+      "inc r2"          "\n\t"
+      "out 0x3F,r5"     "\n\t"
+      "reti"
+      :: "I" _SFR_IO_ADDR(PIND), "I" (STEP), "I" _SFR_IO_ADDR(PIND), "I" (DIR_SEL), "I" _SFR_IO_ADDR(PORTD), "I" (TRK00)
+    );    
 }
+
 
 
 
@@ -351,7 +391,11 @@ int main()
                     // Send sector GAP ------------------------------------------------------
                     for(cnt = 0; cnt < 54; cnt++)
                         send_byte(0x4E);
-
+                                        
+                    if(sector==15)
+                      for(cnt = 0; cnt < 182; cnt++)
+                        send_byte(0x4E);
+                        
                     if(cylinder_changed || (PIND & _BV(MOTOR_ON))) break;
                 }
                 if(read_error) break;
