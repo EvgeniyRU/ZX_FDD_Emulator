@@ -31,12 +31,7 @@ uint8_t sector_data[256]; // sector data
 uint32_t clust_table[MAX_CYL]; // Cluster table
 uint32_t sector_table[32]; // Cluster table for sectors in cylinder
 
-uint8_t prev_byte;
-volatile register uint8_t cylinder_changed asm("r2");
-volatile register uint8_t max_cylinder asm("r3");
-volatile register uint8_t cylinder asm("r4");
-volatile register uint8_t sreg_save asm("r5");
-
+uint8_t prev_byte, cylinder_changed, max_cylinder, cylinder;
 
 // inverted MFM table for fast converting
 uint8_t MFM_tab_inv[32] = {
@@ -336,11 +331,11 @@ int main()
                         }
                         send_byte(sector_byte);
                     }
-                    
+
                     if(!sector) DDRB &= ~_BV(INDEX); // SET INDEX HIGH
-                    
+
                     if(cylinder_changed || (PIND & _BV(MOTOR_ON))) break;
-                    
+
                     // Send sector data -----------------------------------------------------
                     for(cnt = 0; ; cnt++)
                     {
@@ -349,7 +344,7 @@ int main()
                     }
 
                     if(cylinder_changed || (PIND & _BV(MOTOR_ON))) break;
-                    
+
                     // Send CRC
                     send_byte(CRC_D.bytes.high);
                     send_byte(CRC_D.bytes.low);
@@ -357,10 +352,10 @@ int main()
                     for(cnt = 0; cnt < 54; cnt++)
                         send_byte(0x4E);
 
-                    if(cylinder_changed || (PIND & _BV(MOTOR_ON))) break;                    
+                    if(cylinder_changed || (PIND & _BV(MOTOR_ON))) break;
                 }
                 if(read_error) break;
-        
+
             } while( !(PIND & ( _BV(MOTOR_ON) | _BV(DRIVE_SEL) )) ); // READ DATA SEND LOOP END
             //-------------------------------------------------------------------------------------------
             PCINT2_disable(); // DISABLE INDERRUPT (STEP pin)
@@ -370,10 +365,10 @@ int main()
 
             /// DEVICE DISABLED =========================================================================================================================
             
-        } /// DRIVE SELECT LOOP END        
+        } /// DRIVE SELECT LOOP END
 
     } // MAIN LOOP END
-  
+
 } // END MAIN
 
 
