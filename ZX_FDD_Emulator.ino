@@ -27,21 +27,14 @@ FATFS fat;
 
 #define MAX_CYL 82          /// maximal cylinder supported by FDD
 
+uint8_t prev_byte, cylinder_changed, max_cylinder, cylinder;
 uint8_t sector_data[256]; // sector data
 uint32_t clust_table[MAX_CYL]; // Cluster table
 uint32_t sector_table[32]; // Cluster table for sectors in cylinder
 
-uint8_t prev_byte;//, cylinder_changed, max_cylinder, cylinder;
-volatile register uint8_t cylinder_changed asm("r2");
-volatile register uint8_t max_cylinder asm("r3");
-volatile register uint8_t cylinder asm("r4");
-volatile register uint8_t sreg_save asm("r5");
-
 // inverted MFM table for fast converting
-uint8_t MFM_tab_inv[32] = {
-  0x55,0x56,0x5B,0x5A,0x6D,0x6E,0x6B,0x6A,0xB5,0xB6,0xBB,0xBA,0xAD,0xAE,0xAB,0xAA,
-  0xD5,0xD6,0xDB,0xDA,0xED,0xEE,0xEB,0xEA,0xB5,0xB6,0xBB,0xBA,0xAD,0xAE,0xAB,0xAA,
-};
+uint8_t MFM_tab_inv_true_0[32] = {0x77,0x77,0x77,0x77,0x7D,0x7D,0x7D,0x7D,0xDF,0xDF,0xDF,0xDF,0xDD,0xDD,0xDD,0xDD,0xF7,0xF7,0xF7,0xF7,0xFD,0xFD,0xFD,0xFD,0xDF,0xDF,0xDF,0xDF,0xDD,0xDD,0xDD,0xDD};
+uint8_t MFM_tab_inv_true_1[32] = {0x77,0x7D,0xDF,0xDD,0xF7,0xFD,0xDF,0xDD,0x77,0x7D,0xDF,0xDD,0xF7,0xFD,0xDF,0xDD,0x77,0x7D,0xDF,0xDD,0xF7,0xFD,0xDF,0xDD,0x77,0x7D,0xDF,0xDD,0xF7,0xFD,0xDF,0xDD};
 
 const uint16_t Crc16Table[256] PROGMEM = {
     0x0000, 0x1021, 0x2042, 0x3063, 0x4084, 0x50A5, 0x60C6, 0x70E7,
@@ -94,65 +87,31 @@ void inline PCINT2_disable() { PCICR &= ~_BV(PCIE2); }
 ///
 /// STEP pin interrupt
 ///////////////////////////////////////////
-/*ISR(PCINT2_vect)
+ISR(PCINT2_vect)
 {
     asm volatile(
-      "sbic %0,%1"      "\n\t"
-      "rjmp PCINT_END"  "\n\t"
-      "sts 0xC1,r1"     "\n\t" // disable USART
-      :: "I" _SFR_IO_ADDR(PIND), "I" (STEP) // check for rising edge
+      "sbic %0,%1"    "\n\t" // check for falling edge
+      "rjmp PCINT_END"
+      :: "I" _SFR_IO_ADDR(PIND), "I" (STEP)
     );
-
-    //USART_disable();
-    cylinder_changed = 1;
+    
+    USART_disable();
+ 
     if(PIND & _BV(DIR_SEL))
     {
-        if(cylinder != 0)
-           cylinder -= 1;
+        if(cylinder != 0) cylinder--;
+        if(cylinder == 0) DDRD |= _BV(TRK00);
     }
     else
     {
-        if(cylinder + 1 < max_cylinder)
-           cylinder += 1;
+        if(cylinder + 1 < max_cylinder) cylinder++;
+        DDRD &= ~_BV(TRK00); // Set TRK00 - LOW or HIGH
     }
-    if(cylinder == 0) DDRD |= _BV(TRK00); else DDRD &= ~_BV(TRK00); // Set TRK00 - LOW or HIGH
+    cylinder_changed = 1;
 
-asm("PCINT_END:");
-}*/
-
-ISR(PCINT2_vect, ISR_NAKED)
-{
-    asm volatile(
-      "sbic %0,%1"      "\n\t"  // check for falling edge
-      "reti"            "\n\t"
-
-      "sts 0xC1,r1"     "\n\t" // disable USART
-
-      "in r5,0x3F"      "\n\t"
-      "sbis %2,%3"      "\n\t"  // check for direction
-      "rjmp INC_CYL"    "\n\t"
-      
-      // decrease cylinder
-      "tst r4"          "\n\t"
-      "breq END_PCINT"  "\n\t"
-      "dec r4"          "\n\t"
-      "brne END_PCINT"  "\n\t"
-      "cbi %4,%5"       "\n\t"  // set TRK00 LOW if cylinder = 0
-      "rjmp END_PCINT"  "\n\t"
- "INC_CYL:"             "\n\t"
-      // increase cylinder
-      "inc r4"          "\n\t"
-      "sbi %4,%5"       "\n\t"  // set TRK00 HIGH on inceasing
-      "cp r4,r3"        "\n\t"  // compare with max_cylinder
-      "brne END_PCINT"  "\n\t"
-      "dec r4"          "\n\t"
- "END_PCINT:"           "\n\t"
-      "inc r2"          "\n\t"
-      "out 0x3F,r5"     "\n\t"
-      "reti"
-      :: "I" _SFR_IO_ADDR(PIND), "I" (STEP), "I" _SFR_IO_ADDR(PIND), "I" (DIR_SEL), "I" _SFR_IO_ADDR(PORTD), "I" (TRK00)
-    );    
+    asm("PCINT_END:");
 }
+
 
 
 
@@ -166,7 +125,7 @@ void emu_init()
 
     // Setup USART in MasterSPI mode 500000bps
     UBRR0H = 0x00;
-    UBRR0L = 0x0F; // 500 kbps
+    UBRR0L = 0x07;//0x0F; // 500 kbps
     UCSR0C = 0xC0;
     UCSR0A = 0x00;
     UCSR0B = 0x00; // disabled
@@ -186,15 +145,28 @@ void emu_init()
     sei();   // ENABLE GLOBAL INTERRUPTS
 }
 
+/// Send byte in MFM encoding as 4 bytes at speed 1000000bps
+////////////////////////////////////////////////////////////////
 void send_byte(uint8_t sector_byte)
 {
-    uint8_t tmp = MFM_tab_inv[sector_byte >> 4]; // get first MFM byte from table
+    uint8_t tmp = MFM_tab_inv_true_0[sector_byte >> 4]; // get first MFM byte from table (first 4 bits)
     if((prev_byte & 1) && !(sector_byte & 0x80)) tmp |= 0x80;
     loop_until_bit_is_set(UCSR0A,UDRE0);
-    UDR0 = tmp;  // put byte to send buffer
-    prev_byte = sector_byte;
+    UDR0 = tmp;
+    
+    tmp = MFM_tab_inv_true_1[sector_byte >> 4]; // get first MFM byte from table (second 4 bits)
     loop_until_bit_is_set(UCSR0A,UDRE0);
-    UDR0 = MFM_tab_inv[sector_byte & 0x1f];
+    UDR0 = tmp;
+    
+    tmp = MFM_tab_inv_true_0[sector_byte & 0x1f]; // get second MFM byte from table (first 4 bits)
+    loop_until_bit_is_set(UCSR0A,UDRE0);
+    UDR0 = tmp;
+    
+    tmp = MFM_tab_inv_true_1[sector_byte & 0x1f]; // get second MFM byte from table (second 4 bits)
+    loop_until_bit_is_set(UCSR0A,UDRE0);
+    UDR0 = tmp;
+
+    prev_byte = sector_byte;
 }
 
 ///
@@ -355,8 +327,8 @@ int main()
                         switch(cnt)
                         {
                             case 0: sector_byte = 0; break;
-                            case 12: sector_byte = 0xA1; MFM_tab_inv[1] = 0x76; break;
-                            case 15: sector_byte = 0xFE; MFM_tab_inv[1] = 0x56; break;
+                            case 12: sector_byte = 0xA1; MFM_tab_inv_true_0[1] = 0x7F; break;
+                            case 15: sector_byte = 0xFE; MFM_tab_inv_true_0[1] = 0x77; break;
                             case 16: sector_byte = s_cylinder; break;
                             case 17: sector_byte = side; break;
                             case 18: sector_byte = sector + 1; break;
@@ -366,8 +338,8 @@ int main()
                             case 22: sector_byte = 0x4E; break; // 22 in TR-DOS
                             case 44: sector_byte = 0x00; break;
                             // data field header               
-                            case 56: sector_byte = 0xA1;  MFM_tab_inv[1] = 0x76; break;
-                            case 59: sector_byte = 0xFB;  MFM_tab_inv[1] = 0x56; break;
+                            case 56: sector_byte = 0xA1;  MFM_tab_inv_true_0[1] = 0x7F; break;
+                            case 59: sector_byte = 0xFB;  MFM_tab_inv_true_0[1] = 0x77; break;
                         }
                         send_byte(sector_byte);
                     }
