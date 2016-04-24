@@ -7,6 +7,7 @@
 #include <util/atomic.h>
 #include "PinDefs.h"
 
+
 #define SIDE_SEL  PD0   // pin 0,  SIDE SELECT                                  (INPUT)
 #define READ_DATA PD1   // pin 1,  READ_DATA                                    (OUTPUT) /// defined in USART
 #define WP        PD2   // pin 2,  WRITE PROTECT                                (OUTPUT)
@@ -21,7 +22,10 @@
 
 #include "SDCardModule.h"
 #include "Fat32Module.h"
+#include "LCDModule.h"
 FATFS fat;
+DIR dir;
+FILINFO fnfo;
 
 /// EMULATOR START -------------------------------------------------------------------------------------------------
 
@@ -129,6 +133,7 @@ void emu_init()
 
     // INIT pins and ports
     PORTD |= _BV(STEP) | _BV(MOTOR_ON) | _BV(DRIVE_SEL) | _BV(DIR_SEL) | _BV(SIDE_SEL); // set pull-up
+    
     DDRB &= ~_BV(INDEX); // SET INDEX HIGH
     DDRD &= ~(_BV(WP) | _BV(TRK00)); // Set RD, WP,TRK00 as input // | _BV(READ_DATA)
  
@@ -145,7 +150,7 @@ void emu_init()
 void send_byte(uint8_t sector_byte)
 {
     uint8_t tmp = MFM_tab_inv_true_0[sector_byte >> 4]; // get first MFM byte from table (first 4 bits)
-    if((prev_byte & 1) && !(sector_byte & 0x80)) tmp |= 0x80;
+    if((prev_byte & 1) && !(sector_byte & 0x80)) tmp |= 0x80; // check previous last bit and correct first clock bit of a new byte
     loop_until_bit_is_set(UCSR0A,UDRE0);
     UDR0 = tmp;
 
@@ -169,31 +174,64 @@ union { uint16_t val; struct { byte low; byte high; } bytes; } CRC_H, CRC_D;
 
 int main()
 {
-    //init(); // init arduino libraries
+    init(); // init arduino libraries
+
+    LCD_init();
 
     emu_init(); // initialize FDD emulator
+
 
     while(1)
     { // MAIN LOOP START
         /// MAIN LOOP USED FOR SELECT and INIT SD CARD and other
 
-     MOUNT:
+     MOUNT:        
         //>>>>>> print "NO CARD PRESENT" on LCD
         pf_mount(0);
+        LCD_clear();
+     NO_FILES:
+        LCD_print("NO CARD INSERTED");
         while(pf_mount(&fat) != FR_OK);
+        LCD_clear();
+        LCD_print(" CARD MOUNT OK.");
         //>>>>>> print "CARD INFO etc..."
 
         //uint32_t serial = card_read_serial();
-
+        
 
         //>>>>>> SELECT TRD IMAGE HERE
+
+        pf_opendir(&dir,"/");
+
+        uint16_t index = 0;
+        
+        for(;;)
+        {
+            if(pf_readdir(&dir,&fnfo) != FR_OK) goto MOUNT;
+            if(strcasestr(fnfo.fname,".trd"))
+                if ((fnfo.fattrib & AM_DIR) == 0 && fnfo.fname[0] != 0) { index++; break; }
+            if(pf_dirnext(&dir) != FR_OK) break;
+        }
+
+        if(index == 0)
+        {
+            LCD_clear();
+            LCD_print("- NO TRD FILES -");
+            delay(1000);
+            goto NO_FILES;
+        }
 
 
         /////////////////////////////////////////////////////////////////
         // MOUNT TRD IMAGE and init Track Cluster table
         ///////////////////////////////////////////////////////////////////////////////////////////////////
         // --------------------------------------------------------------------------------------------------------------------------------
-        if(pf_open("default.trd") != FR_OK) goto MOUNT; // if unable to open file, usually if SD card is removed
+        //if(pf_open("default.trd") != FR_OK) goto MOUNT; // if unable to open file, usually if SD card is removed
+        if(pf_open(fnfo.fname) != FR_OK) goto MOUNT; // if unable to open file, usually if SD card is removed
+        
+        LCD_clear();
+        LCD_print("default.trd     ");
+        LCD_print(0,1,"CYL: 00 HEAD: 00" );
 
         max_cylinder = fat.fsize / 8192 + ((fat.fsize % 8192) ? 1 : 0); // calculate maximal cylinder
         if( max_cylinder > MAX_CYL ) max_cylinder = MAX_CYL;
@@ -230,6 +268,7 @@ int main()
 
             if(cylinder == 0) DDRD |= _BV(TRK00);
             PCINT2_enable(); // ENABLE INDERRUPT (STEP pin)
+
             DDRD |= _BV(WP); // set WRITE PROTECT
 
             //check SD Card is present and same card as was mounted
@@ -257,7 +296,8 @@ int main()
                             }
                           
                             s_cylinder = cylinder;
-                            // create cluster table for cylinder sectors
+
+                            // FAST create cluster table for all 32 cylinder sectors
                             cur_fat = clust_table[s_cylinder];
                             cur_fat_sector = cur_fat / 64;
                             sector_table[0] = sector_table[1] = cur_fat; // sector 1 offset on SD card
@@ -327,7 +367,9 @@ int main()
                             case 22: sector_byte = 0x4E; break; // 22 in TR-DOS
                             case 44: sector_byte = 0x00; break;
                             // data field header
-                            case 56: sector_byte = 0xA1;  MFM_tab_inv_true_0[1] = 0x7F; break;
+                            case 56: sector_byte = 0xA1;
+                                     MFM_tab_inv_true_0[1] = 0x7F;
+                                     break;
                             case 59: sector_byte = 0xFB;  MFM_tab_inv_true_0[1] = 0x77; break;
                         }
                         send_byte(sector_byte);
@@ -353,10 +395,13 @@ int main()
 
                     if(cylinder_changed || (PIND & _BV(MOTOR_ON))) break; // if cylinder is changed or FDD is disabled
 
-                    /*if(sector == 0)
+                    if(sector == 0)
                     {
-                         // print "CYLINDER, HEAD INFO" or track number on LCD
-                    }*/
+                         // print "CYLINDER, HEAD INFO" or track number on LCD                         
+                         LCD_print(5,1,cylinder / 10);
+                         LCD_print(cylinder % 10);
+                         LCD_print(15,1,side);
+                    }
 
                 }
                 if(read_error) break;

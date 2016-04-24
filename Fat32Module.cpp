@@ -55,7 +55,7 @@ static uint32_t clust2sect (    // !=0: Sector number, 0: Failed - invalid clust
 
 
 /// Rewind directory index
-static FRESULT dir_rewind (
+FRESULT dir_rewind (
   DIR *dj       // Pointer to directory object
 )
 {
