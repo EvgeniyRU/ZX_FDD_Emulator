@@ -185,19 +185,18 @@ int main()
     { // MAIN LOOP START
         /// MAIN LOOP USED FOR SELECT and INIT SD CARD and other
 
-     MOUNT:        
+     MOUNT:
         //>>>>>> print "NO CARD PRESENT" on LCD
-        pf_mount(0);
         LCD_clear();
-     NO_FILES:
         LCD_print("NO CARD INSERTED");
+     NO_FILES:
+        pf_mount(0);
         while(pf_mount(&fat) != FR_OK);
         LCD_clear();
         LCD_print(" CARD MOUNT OK.");
         //>>>>>> print "CARD INFO etc..."
 
         //uint32_t serial = card_read_serial();
-        
 
         //>>>>>> SELECT TRD IMAGE HERE
 
@@ -230,7 +229,7 @@ int main()
         if(pf_open(fnfo.fname) != FR_OK) goto MOUNT; // if unable to open file, usually if SD card is removed
         
         LCD_clear();
-        LCD_print("default.trd     ");
+        LCD_print(fnfo.fname);
         LCD_print(0,1,"CYL: 00 HEAD: 00" );
 
         max_cylinder = fat.fsize / 8192 + ((fat.fsize % 8192) ? 1 : 0); // calculate maximal cylinder
@@ -367,9 +366,7 @@ int main()
                             case 22: sector_byte = 0x4E; break; // 22 in TR-DOS
                             case 44: sector_byte = 0x00; break;
                             // data field header
-                            case 56: sector_byte = 0xA1;
-                                     MFM_tab_inv_true_0[1] = 0x7F;
-                                     break;
+                            case 56: sector_byte = 0xA1; MFM_tab_inv_true_0[1] = 0x7F; break;
                             case 59: sector_byte = 0xFB;  MFM_tab_inv_true_0[1] = 0x77; break;
                         }
                         send_byte(sector_byte);
