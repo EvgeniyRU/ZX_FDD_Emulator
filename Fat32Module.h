@@ -5,7 +5,7 @@
 /// ----------------------------------------------------------------------------------------------------------------
 /// FAT32 PART
 /// ----------------------------------------------------------------------------------------------------------------
-  
+
 /// File system object structure
 typedef struct _FATFS_ {
   uint8_t csize;      // Number of sectors per cluster
@@ -39,7 +39,7 @@ typedef struct _FILINFO_ {
   uint16_t  fdate;    // Last modified date
   uint16_t  ftime;    // Last modified time
   uint8_t fattrib;    // Attribute
-  char  fname[13];    // File name
+  char fname[13];    /* File name */
 } FILINFO;
 
 

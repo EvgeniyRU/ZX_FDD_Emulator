@@ -3,10 +3,6 @@
 
 #include "Config.h"
 
-
-///                         En Rw Rs D0 D1 D2 D3 L
-//LiquidCrystal_I2C lcd(0x27, 2, 1, 0, 4, 5, 6, 7, 3, POSITIVE);  // Set the LCD I2C address
-
 // I2C Extender settings
 #define LCDEX_ADDR  0x4E  // Extender address, 0x27 for standard chinese module
 #define LCDEX_RS    0     // RS pin on extender
@@ -22,6 +18,11 @@
 
 #define SCL_CLOCK  100000L
 
+#define TWI_PORT PORTC
+#define TWI_DDR DDRC
+#define TWI_SCL PC5
+#define TWI_SDA PC4
+
 ////////////////////////////////////////////////////////////////////////////////
 // LCD Commands definition
  
@@ -33,7 +34,6 @@
  
 // Set Entry Mode ------------- 0b000001xx
 #define LCD_SET_ENTRY           0x04
- 
 #define LCD_ENTRY_DECREASE      0x00
 #define LCD_ENTRY_INCREASE      0x02
 #define LCD_ENTRY_NOSHIFT       0x00
@@ -95,10 +95,15 @@
 
 void LCD_init();
 void LCD_clear();
+void LCD_home();
 void LCD_print(const char* txt);
-void LCD_print(uint8_t x, uint8_t y, const char* txt);
+void LCD_print(const __FlashStringHelper *txt);
 void LCD_print(uint8_t num);
+
+void LCD_print(uint8_t x, uint8_t y, const char* txt);
+void LCD_print(uint8_t x, uint8_t y, const __FlashStringHelper *txt);
 void LCD_print(uint8_t x, uint8_t y, uint8_t num);
+
 
 
 #endif /* LCD_MODULE_H */

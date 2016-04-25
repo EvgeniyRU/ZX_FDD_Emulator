@@ -161,7 +161,7 @@ int main()
      MOUNT:
         ///>>>>>> print "NO CARD PRESENT" on LCD
         LCD_clear();
-        LCD_print("NO CARD INSERTED");
+        LCD_print(F("NO CARD INSERTED"));
      
      NO_FILES:
         pf_mount(0);
@@ -169,7 +169,7 @@ int main()
 
         ///>>>>>> print "CARD INFO etc..."
         LCD_clear();
-        LCD_print(" CARD MOUNT OK.");
+        LCD_print(F(" CARD MOUNT OK."));
 
         //uint32_t serial = card_read_serial();
 
@@ -190,7 +190,7 @@ int main()
         if(index == 0)
         {
             LCD_clear();
-            LCD_print("- NO TRD FILES -");
+            LCD_print(F("- NO TRD FILES -"));
             delay(1000);
             goto NO_FILES;
         }
@@ -205,7 +205,8 @@ int main()
         
         LCD_clear();
         LCD_print(fnfo.fname);
-        LCD_print(0,1,"CYL: 00 HEAD: 00" );
+
+        LCD_print(0,1, F("CYL: 00  HEAD: 0") );
 
         max_cylinder = fat.fsize / 8192 + ((fat.fsize % 8192) ? 1 : 0); // calculate maximal cylinder
         if( max_cylinder > MAX_CYL ) max_cylinder = MAX_CYL;

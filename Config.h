@@ -26,7 +26,6 @@
 #define SPI_MISO  PB4   // pin 12
 #define SPI_SCK   PB5   // pin 13
 
-
 /// PIN Definitions for Arduion IDE 1.0 support --------------------------------------------------------------
 
 #if !defined(PB0)

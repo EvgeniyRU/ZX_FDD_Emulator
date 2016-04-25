@@ -1,7 +1,6 @@
-//// This module use NewliquidCrystal library from https://bitbucket.org/fmalpartida/new-liquidcrystal/downloads
-//// Later it'll be rewritten without using libraries
 #include <compat/twi.h>
 #include <util/delay.h>
+#include <Arduino.h>
 #include <string.h>
 
 #include "LCDModule.h"
@@ -55,11 +54,6 @@ void strobe_en(uint8_t data)
     twi_send_byte(data);
 }
 
-#define TWI_PORT PORTC
-#define TWI_DDR DDRC
-#define TWI_SCL PC5
-#define TWI_SDA PC4
-
 void LCD_init()
 {
 
@@ -93,10 +87,11 @@ void LCD_init()
     _delay_us(100);
     
     // 4-bit-Mode already enabled
-    twi_send_byte(LCD_FUNCTION_4BIT | LCD_FUNCTION_2LINE | LCD_FUNCTION_5X7);    //-  2-Lines, 5x7-Matrix
-    twi_send_byte(LCD_DISPLAY_OFF);            // Display off
-    twi_send_byte(LCD_CLEAR_DISPLAY);          //  Clear Screen
-    twi_send_byte(LCD_DISPLAY_ON | LCD_BLINKING_OFF);    //-  Display on
+    twi_send_byte(LCD_FUNCTION_4BIT | LCD_FUNCTION_2LINE | LCD_FUNCTION_5X7); // 2-Lines, 5x7-Matrix
+    twi_send_byte(LCD_DISPLAY_OFF);   // Display off
+    twi_send_byte(LCD_CLEAR_DISPLAY); //  Clear Screen
+    //twi_send_byte(LCD_SET_ENTRY | LCD_ENTRY_INCREASE | LCD_ENTRY_SHIFT);   // Set Entry
+    twi_send_byte(LCD_DISPLAY_ON | LCD_BLINKING_OFF); //-  Display on
 }
 
 void lcd_command(unsigned char cmd)
@@ -133,7 +128,11 @@ void lcd_putch(unsigned char chr)
 void LCD_clear()
 {
     lcd_command( LCD_CLEAR_DISPLAY );
-    _delay_ms( 4 );//LCD_CLEAR_DISPLAY_MS );
+}
+
+void LCD_home()
+{
+    lcd_command( LCD_CURSOR_HOME );
 }
 
 void LCD_setcursor(uint8_t x, uint8_t y)
@@ -149,7 +148,17 @@ void LCD_setcursor(uint8_t x, uint8_t y)
 
 void LCD_print(const char* txt)
 {
-  for(uint8_t i = 0; i < strlen(txt); i++) lcd_putch(txt[i]);
+    for(uint8_t i = 0; i < strlen(txt); i++) lcd_putch(txt[i]);
+}
+
+void LCD_print(const __FlashStringHelper *txt)
+{
+    const char *p = (const char PROGMEM *)txt;    
+    for(;;) {
+      char c = pgm_read_byte_near(p++);
+      if(c == 0) break;
+      lcd_putch(c);
+    }
 }
 
 // print digit
@@ -161,7 +170,13 @@ void LCD_print(uint8_t num)
 void LCD_print(uint8_t x, uint8_t y, const char* txt)
 {
   LCD_setcursor(x,y);
-  for(uint8_t i = 0; i < strlen(txt); i++) lcd_putch(txt[i]);
+  LCD_print(txt);
+}
+
+void LCD_print(uint8_t x, uint8_t y, const __FlashStringHelper *txt)
+{
+  LCD_setcursor(x,y);
+  LCD_print(txt);
 }
 
 void LCD_print(uint8_t x, uint8_t y, uint8_t num)
