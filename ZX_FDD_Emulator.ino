@@ -20,13 +20,9 @@ uint8_t sector_data[256]; // sector data
 uint32_t clust_table[MAX_CYL], sector_table[32]; // Cluster table, Cluster table for sectors in cylinder
 
 // inverted MFM table for fast converting
-uint8_t MFM_tab_inv_true_0[32] = {
-  0x77,0x77,0x77,0x77,0x7D,0x7D,0x7D,0x7D,0xDF,0xDF,0xDF,0xDF,0xDD,0xDD,0xDD,0xDD,
-  0xF7,0xF7,0xF7,0xF7,0xFD,0xFD,0xFD,0xFD,0xDF,0xDF,0xDF,0xDF,0xDD,0xDD,0xDD,0xDD
-};
-uint8_t MFM_tab_inv_true_1[32] = {
-  0x77,0x7D,0xDF,0xDD,0xF7,0xFD,0xDF,0xDD,0x77,0x7D,0xDF,0xDD,0xF7,0xFD,0xDF,0xDD,
-  0x77,0x7D,0xDF,0xDD,0xF7,0xFD,0xDF,0xDD,0x77,0x7D,0xDF,0xDD,0xF7,0xFD,0xDF,0xDD
+uint8_t MFM_tab[64] = {
+  0x77,0x77,0x77,0x77,0x7D,0x7D,0x7D,0x7D,0xDF,0xDF,0xDF,0xDF,0xDD,0xDD,0xDD,0xDD,0xF7,0xF7,0xF7,0xF7,0xFD,0xFD,0xFD,0xFD,0xDF,0xDF,0xDF,0xDF,0xDD,0xDD,0xDD,0xDD,
+  0x77,0x7D,0xDF,0xDD,0xF7,0xFD,0xDF,0xDD,0x77,0x7D,0xDF,0xDD,0xF7,0xFD,0xDF,0xDD,0x77,0x7D,0xDF,0xDD,0xF7,0xFD,0xDF,0xDD,0x77,0x7D,0xDF,0xDD,0xF7,0xFD,0xDF,0xDD,
 };
 
 const uint16_t Crc16Table[256] PROGMEM = {
@@ -122,19 +118,19 @@ void emu_init()
 ////////////////////////////////////////////////////////////////
 void send_byte(uint8_t sector_byte)
 {
-    uint8_t tmp = MFM_tab_inv_true_0[sector_byte >> 4]; // get first MFM byte from table (first 4 bits)
+    uint8_t tmp = MFM_tab[sector_byte >> 4]; // get first MFM byte from table (first 4 bits)
     if((prev_byte & 1) && !(sector_byte & 0x80)) tmp |= 0x80; // check previous last bit and correct first clock bit of a new byte
     loop_until_bit_is_set(UCSR0A,UDRE0);
     UDR0 = tmp;
 
     loop_until_bit_is_set(UCSR0A,UDRE0);
-    UDR0 = MFM_tab_inv_true_1[sector_byte >> 4]; // get first MFM byte from table (second 4 bits)
+    UDR0 = MFM_tab[(sector_byte >> 4) + 32]; // get first MFM byte from table (second 4 bits)
 
     loop_until_bit_is_set(UCSR0A,UDRE0);
-    UDR0 = MFM_tab_inv_true_0[sector_byte & 0x1f]; // get second MFM byte from table (first 4 bits)
+    UDR0 = MFM_tab[sector_byte & 0x1f]; // get second MFM byte from table (first 4 bits)
 
     loop_until_bit_is_set(UCSR0A,UDRE0);
-    UDR0 = MFM_tab_inv_true_1[sector_byte & 0x1f]; // get second MFM byte from table (second 4 bits)
+    UDR0 = MFM_tab[(sector_byte & 0x1f) + 32]; // get second MFM byte from table (second 4 bits)
 
     prev_byte = sector_byte;
 }
@@ -177,13 +173,15 @@ int main()
 
         pf_opendir(&dir,"/");
 
-        uint16_t index = 0;
+        uint16_t index = 0;        
         
         for(;;)
         {
-            if(pf_readdir(&dir,&fnfo) != FR_OK) goto MOUNT;
+            if(pf_readdir(&dir,&fnfo) != FR_OK) goto MOUNT;   // read directory entry
             if(strcasestr(fnfo.fname,".trd"))
-                if ((fnfo.fattrib & AM_DIR) == 0 && fnfo.fname[0] != 0) { index++; break; }
+                if ((fnfo.fattrib & AM_DIR) == 0 && fnfo.fname[0] != 0) { index++; 
+                    if(index == 1) break; 
+                }
             if(pf_dirnext(&dir) != FR_OK) break;
         }
 
@@ -198,12 +196,13 @@ int main()
 
         /////////////////////////////////////////////////////////////////
         // MOUNT TRD IMAGE and init Track Cluster table
+        // fnfo.fname contain short name (8.3) of selected TRD image
         ///////////////////////////////////////////////////////////////////////////////////////////////////
         // --------------------------------------------------------------------------------------------------------------------------------
-        //if(pf_open("default.trd") != FR_OK) goto MOUNT; // if unable to open file, usually if SD card is removed
         if(pf_open(fnfo.fname) != FR_OK) goto MOUNT; // if unable to open file, usually if SD card is removed
         
         LCD_clear();
+        LCD_print_char(0);
         LCD_print(fnfo.fname);
 
         LCD_print(0,1, F("CYL: 00  HEAD: 0") );
@@ -331,8 +330,8 @@ int main()
                         switch(cnt)
                         {
                             case 0: sector_byte = 0; break;
-                            case 12: sector_byte = 0xA1; MFM_tab_inv_true_0[1] = 0x7F; break;
-                            case 15: sector_byte = 0xFE; MFM_tab_inv_true_0[1] = 0x77; break;
+                            case 12: sector_byte = 0xA1; MFM_tab[1] = 0x7F; break;
+                            case 15: sector_byte = 0xFE; MFM_tab[1] = 0x77; break;
                             case 16: sector_byte = s_cylinder; break;
                             case 17: sector_byte = side; break;
                             case 18: sector_byte = sector + 1; break;
@@ -342,8 +341,8 @@ int main()
                             case 22: sector_byte = 0x4E; break; // 22 in TR-DOS
                             case 44: sector_byte = 0x00; break;
                             // data field header
-                            case 56: sector_byte = 0xA1; MFM_tab_inv_true_0[1] = 0x7F; break;
-                            case 59: sector_byte = 0xFB; MFM_tab_inv_true_0[1] = 0x77; break;
+                            case 56: sector_byte = 0xA1; MFM_tab[1] = 0x7F; break;
+                            case 59: sector_byte = 0xFB; MFM_tab[1] = 0x77; break;
                         }
                         send_byte(sector_byte);
                     }

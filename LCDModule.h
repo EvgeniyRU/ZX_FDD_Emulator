@@ -96,13 +96,18 @@
 void LCD_init();
 void LCD_clear();
 void LCD_home();
-void LCD_print(const char* txt);
-void LCD_print(const __FlashStringHelper *txt);
-void LCD_print(uint8_t num);
 
+void LCD_print(const char* txt);
 void LCD_print(uint8_t x, uint8_t y, const char* txt);
+
+void LCD_print(const __FlashStringHelper *txt);
 void LCD_print(uint8_t x, uint8_t y, const __FlashStringHelper *txt);
+
+void LCD_print(uint8_t num);
 void LCD_print(uint8_t x, uint8_t y, uint8_t num);
+
+void LCD_print_char(uint8_t char_num);
+void LCD_print_char(uint8_t x, uint8_t y, uint8_t char_num);
 
 
 
