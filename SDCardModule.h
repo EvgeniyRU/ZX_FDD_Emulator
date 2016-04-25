@@ -1,16 +1,7 @@
 #ifndef SDCARD_MODULE_H
 #define SDCARD_MODULE_H
 
-#include "PinDefs.h"
-#include <stdint.h>
-
-/* SD card attached to SPI bus as follows: MOSI - pin 11, MISO - pin 12, CLK(SCK) - pin 13, CS - pin 10 */
-#define SPI_DDR   DDRB
-#define SPI_PORT  PORTB
-#define SPI_CS    PB2   // pin 10
-#define SPI_MOSI  PB3   // pin 11
-#define SPI_MISO  PB4   // pin 12
-#define SPI_SCK   PB5   // pin 13
+#include "Config.h"
 
 // CS operation
 #define SELECT()  SPI_PORT &= ~_BV(SPI_CS) /* CS = L */
