@@ -15,15 +15,9 @@ FILINFO fnfo;
 
 /// EMULATOR START -------------------------------------------------------------------------------------------------
 
-uint8_t prev_byte, cylinder_changed, max_cylinder, cylinder;
+uint8_t prev_byte, cylinder_changed, max_cylinder, cylinder, A1_mark = 0;
 uint8_t sector_data[256]; // sector data
 uint32_t clust_table[MAX_CYL], sector_table[32]; // Cluster table, Cluster table for sectors in cylinder
-
-// inverted MFM table for fast converting
-uint8_t MFM_tab[64] = {
-  0x77,0x77,0x77,0x77,0x7D,0x7D,0x7D,0x7D,0xDF,0xDF,0xDF,0xDF,0xDD,0xDD,0xDD,0xDD,0xF7,0xF7,0xF7,0xF7,0xFD,0xFD,0xFD,0xFD,0xDF,0xDF,0xDF,0xDF,0xDD,0xDD,0xDD,0xDD,
-  0x77,0x7D,0xDF,0xDD,0xF7,0xFD,0xDF,0xDD,0x77,0x7D,0xDF,0xDD,0xF7,0xFD,0xDF,0xDD,0x77,0x7D,0xDF,0xDD,0xF7,0xFD,0xDF,0xDD,0x77,0x7D,0xDF,0xDD,0xF7,0xFD,0xDF,0xDD,
-};
 
 const uint16_t Crc16Table[256] PROGMEM = {
     0x0000, 0x1021, 0x2042, 0x3063, 0x4084, 0x50A5, 0x60C6, 0x70E7, 0x8108, 0x9129, 0xA14A, 0xB16B, 0xC18C, 0xD1AD, 0xE1CE, 0xF1EF,
@@ -114,23 +108,27 @@ void emu_init()
     sei();   // ENABLE GLOBAL INTERRUPTS
 }
 
+
 /// Send byte in MFM encoding as 4 bytes at speed 1000000bps
 ////////////////////////////////////////////////////////////////
 void send_byte(uint8_t sector_byte)
 {
-    uint8_t tmp = MFM_tab[sector_byte >> 4]; // get first MFM byte from table (first 4 bits)
+    // inverted, very small MFM table for fast converting
+    static uint8_t MFM_tab[8] = { 0x77,0x7D,0xDF,0xDD,0xF7,0xFD,0xDF,0xDD };
+
+    uint8_t tmp = MFM_tab[sector_byte >> 6]; // get first MFM byte from table (first 4 bits)
     if((prev_byte & 1) && !(sector_byte & 0x80)) tmp |= 0x80; // check previous last bit and correct first clock bit of a new byte
     loop_until_bit_is_set(UCSR0A,UDRE0);
     UDR0 = tmp;
 
     loop_until_bit_is_set(UCSR0A,UDRE0);
-    UDR0 = MFM_tab[(sector_byte >> 4) + 32]; // get first MFM byte from table (second 4 bits)
+    UDR0 = MFM_tab[(sector_byte >> 4) & 0x07]; // get first MFM byte from table (second 4 bits)
+
+    loop_until_bit_is_set(UCSR0A,UDRE0);    
+    UDR0 = A1_mark ? 0x7F : MFM_tab[(sector_byte >> 2)& 0x07]; // get second MFM byte from table (first 4 bits)
 
     loop_until_bit_is_set(UCSR0A,UDRE0);
-    UDR0 = MFM_tab[sector_byte & 0x1f]; // get second MFM byte from table (first 4 bits)
-
-    loop_until_bit_is_set(UCSR0A,UDRE0);
-    UDR0 = MFM_tab[(sector_byte & 0x1f) + 32]; // get second MFM byte from table (second 4 bits)
+    UDR0 = MFM_tab[sector_byte & 0x07]; // get second MFM byte from table (second 4 bits)
 
     prev_byte = sector_byte;
 }
@@ -330,8 +328,8 @@ int main()
                         switch(cnt)
                         {
                             case 0: sector_byte = 0; break;
-                            case 12: sector_byte = 0xA1; MFM_tab[1] = 0x7F; break;
-                            case 15: sector_byte = 0xFE; MFM_tab[1] = 0x77; break;
+                            case 12: sector_byte = 0xA1; A1_mark = 1; break;
+                            case 15: sector_byte = 0xFE; A1_mark = 0; break;
                             case 16: sector_byte = s_cylinder; break;
                             case 17: sector_byte = side; break;
                             case 18: sector_byte = sector + 1; break;
@@ -341,8 +339,8 @@ int main()
                             case 22: sector_byte = 0x4E; break; // 22 in TR-DOS
                             case 44: sector_byte = 0x00; break;
                             // data field header
-                            case 56: sector_byte = 0xA1; MFM_tab[1] = 0x7F; break;
-                            case 59: sector_byte = 0xFB; MFM_tab[1] = 0x77; break;
+                            case 56: sector_byte = 0xA1; A1_mark = 1; break;
+                            case 59: sector_byte = 0xFB; A1_mark = 0; break;
                         }
                         send_byte(sector_byte);
                     }
