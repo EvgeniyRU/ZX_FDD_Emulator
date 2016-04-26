@@ -5,10 +5,11 @@
 
 /// Custom characters definition -------------------------------------------------
 
-#define SYMB_COUNT 1
+#define SYMB_COUNT 2
 
-const uint8_t symbols[][8] PROGMEM = {
-  { 0b10000, 0b11000, 0b11100, 0b11110, 0b11100, 0b11000, 0b10000, 0b00000 },//Play
+const uint8_t symbols[] PROGMEM = {
+  0b10000, 0b11000, 0b11100, 0b11110, 0b11100, 0b11000, 0b10000, 0b00000,//Play
+  0b00000, 0b00000, 0b01111, 0b11001, 0b10001, 0b10001, 0b11111, 0b00000,//Folder
 };
 
 
@@ -143,7 +144,7 @@ void LCD_init()
     lcd_command(LCD_SET_ENTRY | LCD_ENTRY_INCREASE | LCD_ENTRY_NOSHIFT);
     LCD_clear();
 
-    for(uint8_t i=0; i < SYMB_COUNT;i++) lcd_generate_char(i, i);
+    for(uint8_t i=0; i < SYMB_COUNT; i++) lcd_generate_char(i,i);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

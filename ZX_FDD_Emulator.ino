@@ -163,6 +163,16 @@ void send_byte(uint8_t sector_byte)
 FILINFO disp_files[2], fnfo;
 DIR dir, first_dir;
 uint8_t f_index;
+void print_files(uint8_t index)
+{
+    LCD_print_char(0,index,0);
+    if((disp_files[0].fattrib & AM_DIR) != 0)
+        LCD_print_char(1,0,1);
+    if((disp_files[1].fattrib & AM_DIR) != 0)
+        LCD_print_char(1,1,1);
+    LCD_print(2,0,disp_files[0].fname);
+    LCD_print(2,1,disp_files[1].fname);
+}
 
 /// f_attay_index - LCD display line number
 /// dire - direction 0 - forward, 1 - backward
@@ -256,9 +266,7 @@ int main()
         prev_pc = 0;
     FILE_LIST:
         LCD_clear();
-        LCD_print_char(0,disp_index,0);
-        LCD_print(2,0,disp_files[0].fname);
-        LCD_print(2,1,disp_files[1].fname);
+        print_files(disp_index);
 
         PCINT1_enable();
         while(PINC & _BV(BTN))
@@ -278,8 +286,8 @@ int main()
                     if(f_index > 1)
                     {
                       disp_index=1;
-                      LCD_print_char(0,0,32);
                       LCD_print_char(0,1,0);
+                      LCD_print_char(0,0,32);
                     }
                 }
                 else
@@ -288,9 +296,7 @@ int main()
                     if(res == 0)
                     {
                         LCD_clear();
-                        LCD_print_char(0,1,0);
-                        LCD_print(2,0,disp_files[0].fname);
-                        LCD_print(2,1,disp_files[1].fname);
+                        print_files(disp_index);
                     }
                     else if(res == -1) goto MOUNT;
                 }
@@ -315,9 +321,7 @@ int main()
                     if(res == 0)
                     {
                         LCD_clear();
-                        LCD_print_char(0,0,0);
-                        LCD_print(2,0,disp_files[0].fname);
-                        LCD_print(2,1,disp_files[1].fname);
+                        print_files(disp_index);
                     }
                     else if(res == -1) goto MOUNT;
                 }
@@ -339,6 +343,7 @@ int main()
         
         LCD_clear();
         LCD_print_char(0);
+        LCD_print_char(32);
         LCD_print(fnfo.fname);
 
         LCD_print(0,1, F("CYL: 00  HEAD: 0") );
