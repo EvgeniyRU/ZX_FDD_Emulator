@@ -63,9 +63,15 @@ volatile uint8_t encoder_val, prev_pc = 0;
 ISR(PCINT1_vect)
 {
     uint8_t pc_val = PINC & (_BV(ENC_A) | _BV(ENC_B));
+    uint8_t A=0,B=0;
     if(prev_pc == (_BV(ENC_A) | _BV(ENC_B)) && pc_val != 0)
     {
-      if(pc_val == _BV(ENC_A)) encoder_val++; else encoder_val--;
+      for(uint8_t i = 0; i < 100; i++)
+      {
+          if(PINC & _BV(ENC_A)) A++;
+          if(PINC & _BV(ENC_B)) B++;
+      }
+      if(A > 70 && B < 30) encoder_val++; else if(B > 70 && A < 30) encoder_val--;
     }
     prev_pc = pc_val;
 }
@@ -260,57 +266,59 @@ int main()
             {
               if(!(PINC & _BV(BTN))) break;
             }
+            if( serial != card_read_serial() ) goto MOUNT;
             
-            if( serial != card_read_serial()) goto MOUNT;
-            
-            if(encoder_val > 105)
+            if(encoder_val > 101)
             { // read next directory entry
                 cli();
                 if(disp_index == 0)
                 { // only move pointer
+                    if(readdir(3,0) == -1) goto MOUNT;
                     if(f_index > 1)
                     {
-                        disp_index=1;
-                        readdir(3,0);
-                        LCD_print_char(0,0,32);
-                        LCD_print_char(0,1,0);
+                      disp_index=1;
+                      LCD_print_char(0,0,32);
+                      LCD_print_char(0,1,0);
                     }
                 }
                 else
                 { // load next entry
-                    if(readdir(1,0) == 0)
+                    uint8_t res = readdir(1,0);
+                    if(res == 0)
                     {
                         LCD_clear();
                         LCD_print_char(0,1,0);
                         LCD_print(2,0,disp_files[0].fname);
                         LCD_print(2,1,disp_files[1].fname);
                     }
+                    else if(res == -1) goto MOUNT;
                 }
                 encoder_val = 100;
                 sei();
             }
-            else if(encoder_val < 95)
+            else if(encoder_val < 99)
             { // read previous directory entry
                 cli();
                 if(disp_index == 1)
                 { // only move pointer
-                    if(f_index > 1)
-                    {
-                        disp_index=0;
-                        readdir(2,1);
-                        LCD_print_char(0,0,0);
-                        LCD_print_char(0,1,32);
+                    if(readdir(2,1) == -1) goto MOUNT;
+                    if(f_index > 1) {
+                      disp_index=0;
+                      LCD_print_char(0,0,0);
+                      LCD_print_char(0,1,32);
                     }
                 }
                 else
                 { // load previous entry
-                    if(readdir(0,1))
+                    uint8_t res = readdir(0,1);
+                    if(res == 0)
                     {
                         LCD_clear();
                         LCD_print_char(0,0,0);
                         LCD_print(2,0,disp_files[0].fname);
                         LCD_print(2,1,disp_files[1].fname);
                     }
+                    else if(res == -1) goto MOUNT;
                 }
                 encoder_val = 100;
                 sei();
