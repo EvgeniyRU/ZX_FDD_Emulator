@@ -58,7 +58,8 @@ void inline PCINT2_disable() { PCICR &= ~_BV(PCIE2); }
 
 ///
 /// ENCODER interrupt
-volatile uint8_t encoder_val, prev_pc = 0;
+volatile int8_t encoder_val = 0; // this is important!
+uint8_t prev_pc = 0;
 ///////////////////////////////////////////
 ISR(PCINT1_vect)
 {
@@ -66,12 +67,12 @@ ISR(PCINT1_vect)
     uint8_t A=0,B=0;
     if(prev_pc == (_BV(ENC_A) | _BV(ENC_B)) && pc_val != 0)
     {
-      for(uint8_t i = 0; i < 100; i++)
+      for(uint8_t i = 0; i < 200; i++)
       {
           if(PINC & _BV(ENC_A)) A++;
           if(PINC & _BV(ENC_B)) B++;
       }
-      if(A > 70 && B < 30) encoder_val++; else if(B > 70 && A < 30) encoder_val--;
+      if(A > 170 && B < 30) encoder_val++; else if(B > 170 && A < 30) encoder_val--;
     }
     prev_pc = pc_val;
 }
@@ -251,7 +252,7 @@ int main()
             goto NO_FILES;
         }
         
-        encoder_val = 100;
+        encoder_val = 0;
         prev_pc = 0;
     FILE_LIST:
         LCD_clear();
@@ -262,13 +263,13 @@ int main()
         PCINT1_enable();
         while(PINC & _BV(BTN))
         {
-            while(encoder_val == 100)
+            while(encoder_val == 0)
             {
               if(!(PINC & _BV(BTN))) break;
             }
             if( serial != card_read_serial() ) goto MOUNT;
             
-            if(encoder_val > 101)
+            if(encoder_val > 0)
             { // read next directory entry
                 cli();
                 if(disp_index == 0)
@@ -293,10 +294,10 @@ int main()
                     }
                     else if(res == -1) goto MOUNT;
                 }
-                encoder_val = 100;
+                encoder_val = 0;
                 sei();
             }
-            else if(encoder_val < 99)
+            else if(encoder_val < 0)
             { // read previous directory entry
                 cli();
                 if(disp_index == 1)
@@ -320,7 +321,7 @@ int main()
                     }
                     else if(res == -1) goto MOUNT;
                 }
-                encoder_val = 100;
+                encoder_val = 0;
                 sei();
             }
         }
