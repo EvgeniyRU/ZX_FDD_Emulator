@@ -1,7 +1,5 @@
-#include <compat/twi.h>
 #include <util/delay.h>
 #include <Arduino.h>
-#include <string.h>
 
 #include "LCDModule.h"
 

@@ -18,10 +18,18 @@
 
 #define SCL_CLOCK  100000L
 
-#define TWI_PORT PORTC
-#define TWI_DDR DDRC
-#define TWI_SCL PC5
-#define TWI_SDA PC4
+#define TWI_PORT        PORTC
+#define TWI_DDR         DDRC
+#define TWI_SCL         PC5
+#define TWI_SDA         PC4
+
+#define TW_START        0x08
+#define TW_REP_START    0x10
+#define TW_MT_SLA_ACK   0x18
+#define TW_MR_SLA_ACK   0x40
+#define TW_SR_SLA_ACK   0x60
+#define TW_STATUS_MASK  (_BV(TWS7)|_BV(TWS6)|_BV(TWS5)|_BV(TWS4)|_BV(TWS3))
+#define TW_STATUS       (TWSR & TW_STATUS_MASK)
 
 ////////////////////////////////////////////////////////////////////////////////
 // LCD Commands definition

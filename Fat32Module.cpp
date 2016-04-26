@@ -6,12 +6,6 @@
 
 static FATFS *FatFs;      // Pointer to the file system object (logical drive)
 
-static uint8_t move_flag = 0;   // directory read order 0 -> next, 1 -> previous
-
-uint8_t pf_move_flag()
-{
-  return move_flag;
-}
 
 /// Private Functions
 ///////////////////////////////////////////////////////////
@@ -80,147 +74,162 @@ FRESULT pf_dirnext (      // FR_OK:Succeeded, FR_NO_FILE:End of table, FR_DENIED
   DIR *dj       // Pointer to directory object
 )
 {
-  uint32_t clst;
-  uint16_t i;
-  FATFS *fs = FatFs;
+    uint32_t clst, tmp_clst, tmp_sect;
+    uint16_t i;
+    uint8_t dir[32];
+    FATFS *fs = FatFs;
+    FRESULT res;
 
-  move_flag = 0;
-
-  if (!fs) return FR_NOT_ENABLED;         // Check if file system is mounted
-
-  i = dj->index + 1;            // dj->index is entry number in directory
-  if (!i || !dj->sect)            // Report EOT when index has reached 65535
-    return FR_NO_FILE;
-
-  if (!(i & 0x0F)) {            // Sector changed? 16 entries of 32 bytes, i - entry number
-    dj->sect++;           // Jump to Next sector
-
-    if (dj->clust == 0)
-    { // Static table
-      if (i >= 0)         // Report EOT when end of table
+    i = dj->index + 1;            // dj->index is entry number in directory
+    tmp_clst = dj->clust;
+    tmp_sect = dj->sect;
+     
+    if (!i || !dj->sect)            // Report EOT when index has reached 65535
         return FR_NO_FILE;
-    }
-    else
-    { // Dynamic table
-      if (((i >> 4) & (fs->csize-1)) == 0)    // if ((i >> 4) = sector number ) & (sectors per cluster - 1) == 0
-      { // Cluster changed?
-        clst = get_fat(dj->clust);    // Get next cluster
-        if (clst <= 1) return FR_DISK_ERR;  // Unable to get cluster number
-        if (clst >= fs->max_clust)    // When it reached end of clusters
-          return FR_NO_FILE;      /* Report EOT */
-        dj->clust = clst;     // Initialize data for new cluster
-        dj->sect = clust2sect(clst);
-      }
-    }
-  }
 
-  dj->index = i;              // index of next directory entry
+    if (!(i % 16)) {    /* Sector changed? */
+        dj->sect++;           // Jump to Next sector
 
-  return FR_OK;
+        if (dj->clust == 0)
+        { // Static table
+            if (i >= 0)         // Report EOT when end of table
+                return FR_NO_FILE;
+        }
+        else
+        { // Dynamic table
+            if (((i >> 4) & (fs->csize-1)) == 0)
+            { // Cluster changed?
+                clst = get_fat(dj->clust);    // Get next cluster
+                if (clst <= 1) return FR_DISK_ERR;  // Unable to get cluster number
+                if (clst >= fs->max_clust)    // When it reached end of clusters
+                    return FR_NO_FILE;      /* Report EOT */
+                dj->clust = clst;     // Initialize data for new cluster
+                dj->sect = clust2sect(clst);
+            }
+        }
+    }
+
+    res = card_readp(dir, dj->sect, (uint16_t)((i % 16) * 32), 32)  // Read an 32 byte directory entry
+         ? FR_DISK_ERR : FR_OK;
+    if (res != FR_OK) return res;
+
+    if (dir[DIR_Name] == 0) 
+    {
+        dj->sect = tmp_sect;
+        dj->clust = tmp_clst;
+        return FR_NO_FILE;    // Reached the end of directory
+    }
+
+    dj->index = i;              // index of next directory entry
+
+    return FR_OK;
 }
 
 
 /// Move directory index prev
 FRESULT pf_dirprev (      // FR_OK:Succeeded
-  DIR *dj       // Pointer to directory object
+    DIR *dj       // Pointer to directory object
 )
 {
-  uint32_t clst, cl_num;
-  uint16_t i;
-  FATFS *fs = FatFs;
-  uint8_t s_num;
+    uint32_t clst;
+    uint16_t i, tmp, cl_num;
+    FATFS *fs = FatFs;
+    uint8_t s_num;
 
-  if (!fs) return FR_NOT_ENABLED;         // Check if file system is mounted
+    if (!fs) return FR_NOT_ENABLED;         // Check if file system is mounted
 
-  if (dj->index == 0 || !dj->sect)        // we're already at 0 index, unable to decrease
-  {
-    move_flag = 0;
-    return FR_NO_FILE;
-  }
+    i = dj->index;
+    if (!i || !dj->sect)        // we're already at 0 index, unable to decrease
+        return FR_NO_FILE;
+    
+    i--;
 
-  i = dj->index - 1;
+    tmp = (i >> 4);
+    cl_num =  tmp / fs->csize;         // calculate cluster number for directory entry
+    s_num =  tmp % fs->csize;          // calculate sector number in cluster
 
-  dir_rewind(dj);
+    clst = dj->sclust;
+    if (clst == 1 || clst >= fs->max_clust)       // Check start cluster range
+        return FR_DISK_ERR;
+    if (!clst)              // Replace cluster# 0 with root cluster# if in FAT32
+        clst = fs->dirbase;
 
-  dj->index = i;
-
-  cl_num =  (i >> 4) / fs->csize;         // calculate cluster number for directory entry
-  s_num =  (i >> 4) % fs->csize;          // calculate sector number in cluster
-
-  for(i = 0; i < cl_num; i++)
-  { // find cluster
-    clst = get_fat(dj->clust);
-    if (clst <= 1) return FR_DISK_ERR;      // Unable to get cluster number
+    for(tmp = 0; tmp < cl_num; tmp++)
+    { // find cluster
+        clst = get_fat(clst);
+        if (clst <= 1) return FR_DISK_ERR;      // Unable to get cluster number
+    }
     dj->clust = clst;         // Initialize data for new cluster
-  }
-  dj->sect = clust2sect(dj->clust) + s_num;
-
-  move_flag = 1;
-  
-  return FR_OK;
+    dj->sect = clust2sect(clst) + s_num;
+    dj->index = i;
+    
+    return FR_OK;
 }
 
 
 /// Find an object in the directory
 static FRESULT dir_find (
-  DIR *dj       // Pointer to the directory object linked to the file name
+    DIR *dj,       // Pointer to the directory object linked to the file name
+    uint8_t *dir   /* 32-byte working buffer */
 )
 {
-  FRESULT res;
-  uint8_t c, *dir;
+    FRESULT res;
+    uint8_t c;
 
-  res = dir_rewind(dj);           // Rewind directory object
-  if (res != FR_OK) return res;
+    res = dir_rewind(dj);           // Rewind directory object
+    if (res != FR_OK) return res;
 
-  dir = FatFs->buf;
-  do {
-    res = card_readp(dir, dj->sect, (uint16_t)((dj->index % 16) * 32), 32)  // Read an entry
-      ? FR_DISK_ERR : FR_OK;
-    if (res != FR_OK) break;
-    c = dir[DIR_Name];          // First character
-    if (c == 0) { res = FR_NO_FILE; break; }    // Reached the end of directory
-    if (!(dir[DIR_Attr] & AM_VOL) && !memcmp(dir, dj->fn, 11))    // Is it a valid and searching entry?
-      break;            // Found, break
-    res = pf_dirnext(dj);         // Next entry if not found yet
-  } while (res == FR_OK);
+    do {
+        res = card_readp(dir, dj->sect, (uint16_t)((dj->index % 16) * 32), 32)  // Read an entry
+            ? FR_DISK_ERR : FR_OK;
+        if (res != FR_OK) break;
+        c = dir[DIR_Name];          // First character
+        if (c == 0) { res = FR_NO_FILE; break; }    // Reached the end of directory
+        if (!(dir[DIR_Attr] & AM_VOL) && !memcmp(dir, dj->fn, 11)) /* Is it a valid entry? */
+            break;            // Found, break
+        res = pf_dirnext(dj);         // Next entry if not found yet
+    } while (res == FR_OK);
 
-  return res;
+    return res;
 }
 
 
 /// Read an object from the directory
 static FRESULT dir_read (
-  DIR *dj       // Pointer to the directory object to store read object name
+    DIR *dj,      // Pointer to the directory object to store read object name
+    uint8_t *dir,     /* 32-byte working buffer */
+    uint8_t move_flag
 )
 {
-  FRESULT res;
-  uint8_t c, *dir;
+    FRESULT res;
+    uint8_t a, c;
 
-  res = FR_NO_FILE;
-  while (dj->sect)
-  {
-    dir = FatFs->buf;
-    res = card_readp(dir, dj->sect, (uint16_t)((dj->index % 16) * 32), 32)  // Read an 32 byte directory entry
-      ? FR_DISK_ERR : FR_OK;
-    if (res != FR_OK) break;
-    c = dir[DIR_Name];
-    if (c == 0) { res = FR_NO_FILE; break; }    // Reached the end of directory
-    if (c != 0xE5 && c != '.' && !(dir[DIR_Attr] & AM_VOL)) // Is it a valid entry?
-      break;            // FOUND, break
-    if(move_flag)
-      res = pf_dirprev(dj);       // Try Prev entry if not found yet
-    
-    if (res != FR_OK) move_flag = 0;
+    res = FR_NO_FILE;
+    while (dj->sect)
+    {
+          res = card_readp(dir, dj->sect, (uint16_t)((dj->index % 16) * 32), 32)  // Read an 32 byte directory entry
+              ? FR_DISK_ERR : FR_OK;
+          if (res != FR_OK) break;
+          c = dir[DIR_Name];
+          if (c == 0) { res = FR_NO_FILE; break; }    // Reached the end of directory
+          a = dir[DIR_Attr] & AM_MASK;
+          if (c != 0xE5 && c != '.' && !(a & AM_VOL))  /* Is it a valid entry? */
+              break;            // FOUND, break
 
-    if(!move_flag)
-      res = pf_dirnext(dj);       // Try Next entry if not found yet
-                
-    if (res != FR_OK) break;
-  }
+          if(move_flag)
+          {
+              res = pf_dirprev(dj);       // Try Prev entry if not found yet
+              if ( res != FR_OK) break;
+          }
+          else
+          {
+              res = pf_dirnext(dj);       // Try Next entry if not found yet
+              if ( res != FR_OK) break;
+          }
+    }
 
-  if (res != FR_OK) dj->sect = 0;
-
-  return res;
+    if (res != FR_OK) dj->sect = 0;
+    return res;
 }
 
 
@@ -265,80 +274,92 @@ static FRESULT create_name (
 
 /// Get file information from directory entry
 static void get_fileinfo (    // No return code
-  DIR *dj,      // Pointer to the directory object
-  FILINFO *fno      // Pointer to store the file information
+    DIR *dj,      // Pointer to the directory object
+    uint8_t *dir,      /* 32-byte working buffer */
+    FILINFO *fno      // Pointer to store the file information
 )
 {
-  uint8_t i, c, *dir;
-  char *p;
+    uint8_t i, c;
+    char *p;
 
-  p = fno->fname;
-  if (dj->sect) {
-    dir = FatFs->buf;
-    for (i = 0; i < 8; i++) {       // Copy file name body
-      c = dir[i];
-      if (c == ' ') break;
-      if (c == 0x05) c = 0xE5;
-      *p++ = c;
+    p = fno->fname;
+    if (dj->sect)
+    {
+        for (i = 0; i < 8; i++)
+        { // Copy file name body
+            c = dir[i];
+            if (c == ' ') break;
+            if (c == 0x05) c = 0xE5;
+            *p++ = c;
+        }
+        if (dir[8] != ' ')
+        { // Copy file name extension
+            *p++ = '.';
+            for (i = 8; i < 11; i++) {
+                c = dir[i];
+                if (c == ' ') break;
+                *p++ = c;
+            }
+        }
+        fno->fattrib = dir[DIR_Attr];       // Attribute
+        fno->fsize = (uint32_t)(*(uint32_t*)(uint8_t*)(&dir[DIR_FileSize]));    // Size
+        fno->fdate = (uint16_t)(*(uint16_t*)(uint8_t*)(&dir[DIR_WrtDate]));     // Date
+        fno->ftime = (uint16_t)(*(uint16_t*)(uint8_t*)(&dir[DIR_WrtTime]));     // Time
     }
-    if (dir[8] != ' ') {          // Copy file name extension
-      *p++ = '.';
-      for (i = 8; i < 11; i++) {
-        c = dir[i];
-        if (c == ' ') break;
-        *p++ = c;
-      }
-    }
-    fno->fattrib = dir[DIR_Attr];       // Attribute
-    fno->fsize = (uint32_t)(*(uint32_t*)(uint8_t*)(&dir[DIR_FileSize]));    // Size
-    fno->fdate = (uint16_t)(*(uint16_t*)(uint8_t*)(&dir[DIR_WrtDate]));     // Date
-    fno->ftime = (uint16_t)(*(uint16_t*)(uint8_t*)(&dir[DIR_WrtTime]));     // Time
-  }
-  *p = 0;
+    *p = 0;
 }
 
+
+static
+uint32_t get_clust (
+    uint8_t* dir   /* Pointer to directory entry */
+)
+{
+    FATFS *fs = FatFs;
+    uint32_t clst = 0;
+
+    clst = (uint16_t)(*(uint16_t*)(&dir[DIR_FstClusHI]));
+    clst <<= 16;
+    clst |= (uint16_t)(*(uint16_t*)(&dir[DIR_FstClusLO]));
+    return clst;
+}
 
 
 /// Follow a file path
 static FRESULT follow_path (    // FR_OK(0): successful, !=0: error code
-  DIR *dj,      // Directory object to return last directory and found object
-  const char *path    // Full-path string to find a file or directory
+    DIR *dj,      // Directory object to return last directory and found object
+    uint8_t *dir,      /* 32-byte working buffer */
+    const char *path    // Full-path string to find a file or directory
 )
 {
-  FRESULT res;
-  uint8_t *dir;
+    FRESULT res;
+  
+    while (*path == ' ') path++;    /* Strip leading spaces */
+    if (*path == '/') path++;         // Strip heading separator
+    dj->sclust = 0;             // Set start directory (always root dir)
 
-  if (*path == '/') path++;         // Strip heading separator
-  dj->sclust = 0;             // Set start directory (always root dir)
-
-  if ((uint8_t)*path < ' ')           // Null path means the root directory
-  {
-    res = dir_rewind(dj);
-    FatFs->buf[0] = 0;
-
-  }
-  else
-  {               // Follow path
-    for (;;)
+    if ((uint8_t)*path < ' ')           // Null path means the root directory
     {
-      res = create_name(dj, &path);     // Get a file name segment
-      if (res != FR_OK) break;
-      res = dir_find(dj);       // Find it
-      if (res != FR_OK)       // Could not find the object
-      {
-        if (res == FR_NO_FILE && !*(dj->fn+11))
-          res = FR_NO_PATH;
-        break;          // Last segment match. Function completed.
-      }
-      if (*(dj->fn+11)) break;      // Last segment match. Function completed.
-      dir = FatFs->buf;       // There is next segment. Follow the sub directory
-      if (!(dir[DIR_Attr] & AM_DIR))      // Cannot follow because it is a file
-        res = FR_NO_PATH; break;
-      dj->sclust = (((uint32_t)(uint16_t)(*(uint16_t*)(uint8_t*)&dir[DIR_FstClusHI])) << 16) | ((uint16_t)*(uint16_t*)(&dir[DIR_FstClusLO]));
+        res = dir_rewind(dj);
+        dir[0] = 0;
     }
-  }
+    else
+    {               // Follow path
+        for (;;)
+        {
+            res = create_name(dj, &path);     // Get a file name segment
+            if (res != FR_OK) break;
+            res = dir_find(dj, dir);       // Find it
+            if (res != FR_OK) break;    /* Could not find the object */
+            if (dj->fn[11]) break;      /* Last segment match. Function completed. */
+            if (!(dir[DIR_Attr] & AM_DIR)) {      // Cannot follow because it is a file
+                res = FR_NO_FILE; break;
+            }
+            dj->sclust = get_clust(dir);  /* Follow next */
+        }
+    }
 
-  return res;
+    return res;
 }
 
 
@@ -422,27 +443,26 @@ FRESULT pf_mount (
 /// Open or Create a File
 uint8_t pf_open (const char *path)
 {
-  FRESULT res;
-  DIR dj;
-  uint8_t sp[12], dir[32];
-  FATFS *fs = FatFs;
+    FRESULT res;
+    DIR dj;
+    uint8_t sp[12], dir[32];
+    FATFS *fs = FatFs;
 
-  if (!fs) return FR_NOT_ENABLED;       // Check if file system is mounted
-    
-  fs->buf = dir;
-  dj.fn = sp;
-  res = follow_path(&dj, path);         // Follow the file path
-  if (res != FR_OK) return res;         // File not found
+    if (!fs) return FR_NOT_ENABLED;       // Check if file system is mounted
 
-  if (!dir[0] || (dir[DIR_Attr] & AM_DIR))      // It is a directory
-    return FR_NO_FILE;
+    dj.fn = sp;
+    res = follow_path(&dj, dir, path);  /* Follow the file path */
+    if (res != FR_OK) return res;         // File not found
 
-  fs->org_clust =                       // File start cluster
-    ((uint32_t)(uint16_t)(*(uint16_t*)(uint8_t*)&dir[DIR_FstClusHI]) << 16) | (uint16_t)(*(uint16_t*)(uint8_t*)&dir[DIR_FstClusLO]);
-  fs->fsize = (uint32_t)(*(uint32_t*)(uint8_t*)&dir[DIR_FileSize]);       // File size
-  fs->fptr = 0;                         // File pointer
+    if (!dir[0] || (dir[DIR_Attr] & AM_DIR))      // It is a directory
+        return FR_NO_FILE;
 
-  return FR_OK;
+    fs->org_clust = get_clust(dir);    /* File start cluster */
+  
+    fs->fsize = (uint32_t)(*(uint32_t*)(uint8_t*)&dir[DIR_FileSize]);       // File size
+    fs->fptr = 0;                         // File pointer
+
+    return FR_OK;
 }
 
 
@@ -548,68 +568,66 @@ FRESULT pf_lseek (
 
 /// Open Directory - Create a Directroy Object
 FRESULT pf_opendir (
-  DIR *dj,      // Pointer to directory object to create
-  const char *path    // Pointer to the directory path
+    DIR *dj,      // Pointer to directory object to create
+    const char *path    // Pointer to the directory path
 )
 {
-  FRESULT res;
-  uint8_t sp[12], dir[32];
-  FATFS *fs = FatFs;
-  dj->index = 0;
+    FRESULT res;
+    uint8_t sp[12], dir[32];
+    FATFS *fs = FatFs;
+    dj->index = 0;
 
-  if (!fs) {              // Check file system is mounted
-    res = FR_NOT_ENABLED;
-  } else {
-    fs->buf = dir;
-    dj->fn = sp;
-    res = follow_path(dj, path);        // Follow the path to the directory
-    if (res == FR_OK) {         // File found
-      if (dir[0]) {         // It is not empty dir
-        if (dir[DIR_Attr] & AM_DIR)   // The object is a directory
-          dj->sclust = ((uint32_t)(uint16_t)(*(uint16_t*)(uint8_t*)&dir[DIR_FstClusHI]) << 16) | (uint16_t)(*(uint16_t*)(uint8_t*)&dir[DIR_FstClusLO]);
-        else          // The object is not a directory
-          res = FR_NO_PATH;
-      }
-      if (res == FR_OK) res = dir_rewind(dj);   // Rewind dir
+    if (!fs) {              // Check file system is mounted
+        res = FR_NOT_ENABLED;
+    } else {
+        dj->fn = sp;
+        res = follow_path(dj, dir, path);    /* Follow the path to the directory */
+        if (res == FR_OK) {         // File found
+            if (dir[0]) {         // It is not empty dir
+                if (dir[DIR_Attr] & AM_DIR)   // The object is a directory
+                    dj->sclust = get_clust(dir);
+                 else          // The object is not a directory
+                    res = FR_NO_FILE;
+            }
+            if (res == FR_OK) res = dir_rewind(dj);   // Rewind dir
+        }
     }
-    if (res == FR_NO_FILE) res = FR_NO_PATH;
-  }
 
-  return res;
+    return res;
 }
 
 
 /// Read current Directory Entry
 FRESULT pf_readdir (
-  DIR *dj,      // Pointer to the open directory object
-  FILINFO *fno      // Pointer to file information to return
+    DIR *dj,          // Pointer to the open directory object
+    FILINFO *fno,      // Pointer to file information to return
+    uint8_t move_direction
 )
 {
-  FRESULT res;
-  uint8_t sp[12], dir[32];
-  FATFS *fs = FatFs;
+    FRESULT res;
+    uint8_t sp[12], dir[32];
+    FATFS *fs = FatFs;
 
 
-  if (!fs)              // Check file system is mounted
-    res = FR_NOT_ENABLED;
-  else
-  {
-    fs->buf = dir;
-    dj->fn = sp;
-    if (!fno)
-      res = dir_rewind(dj);
+    if (!fs)              // Check file system is mounted
+        res = FR_NOT_ENABLED;
     else
     {
-      res = dir_read(dj);
-      if (res == FR_NO_FILE)
-      {
-        dj->sect = 0;
-        res = FR_OK;
-      }
-      if (res == FR_OK)       // A valid entry is found
-        get_fileinfo(dj, fno);      // Get the object information
+        dj->fn = sp;
+        if (!fno)
+            res = dir_rewind(dj);
+        else
+        {
+            res = dir_read(dj, dir, move_direction);
+            if (res == FR_NO_FILE)
+            {
+                dj->sect = 0;
+                res = FR_OK;
+            }
+            if (res == FR_OK)       // A valid entry is found
+                get_fileinfo(dj, dir, fno);  // Get the object information
+        }
     }
-  }
 
-  return res;
+    return res;
 }

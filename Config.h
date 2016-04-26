@@ -5,6 +5,7 @@
 
 /// Floppy pinout configuration -----------------------------------------------------------------------------
 
+#define SIDE_PIN  PIND  // PORT pin at which side pin is located
 #define SIDE_SEL  PD0   // pin 0,  SIDE SELECT                                  (INPUT)
 #define READ_DATA PD1   // pin 1,  READ_DATA                                    (OUTPUT) /// defined in USART
 #define WP        PD2   // pin 2,  WRITE PROTECT                                (OUTPUT)
@@ -15,6 +16,10 @@
 #define DRIVE_SEL PD7   // pin 7,  DRIVE SELECT CONNECT DS0-DS3 using jumper    (INPUT)
 
 #define INDEX     PB0   // pin 8,  INDEX                                        (OUTPUT)
+
+#define ENC_A     PC2
+#define ENC_B     PC3
+#define BTN       PC1
 
 /// SD Card pinout configuration -----------------------------------------------------------------------------
 

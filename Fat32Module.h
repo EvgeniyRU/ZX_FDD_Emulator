@@ -10,7 +10,6 @@
 typedef struct _FATFS_ {
   uint8_t csize;      // Number of sectors per cluster
   uint8_t csect;      // File sector address in the cluster
-  uint8_t* buf;       // Pointer to the disk access buffer
   uint32_t max_clust; // Maximum cluster# + 1. Number of clusters is max_clust - 2
   uint32_t fatbase;   // FAT start sector
   uint32_t dirbase;   // Root directory start Cluster
@@ -96,7 +95,7 @@ uint8_t pf_open (const char*);			/* Open a file */
 uint16_t pf_read (void*, uint16_t);	/* Read data from a file */
 FRESULT pf_lseek (uint32_t);				/* Move file pointer of a file object */
 FRESULT pf_opendir (DIR*, const char*);	/* Open an existing directory */
-FRESULT pf_readdir (DIR*, FILINFO*);	/* Read a directory item */
+FRESULT pf_readdir (DIR*, FILINFO*, uint8_t);	/* Read a directory item */
 FRESULT pf_dirnext (DIR *);
 FRESULT dir_rewind (DIR *);
 FRESULT pf_dirprev (DIR *);

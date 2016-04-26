@@ -9,9 +9,8 @@
 #include "SDCardModule.h"
 #include "Fat32Module.h"
 #include "LCDModule.h"
+
 FATFS fat;
-DIR dir;
-FILINFO fnfo;
 
 /// EMULATOR START -------------------------------------------------------------------------------------------------
 
@@ -42,14 +41,34 @@ const uint16_t Crc16Table[256] PROGMEM = {
 ///
 /// Interrupts enable/disable functions
 ///////////////////////////////////////////
-void inline USART_enable() { UCSR0B = 0x08; }
-void inline USART_disable() { UCSR0B = 0x00; }
+void inline USART_enable() { UCSR0B |= _BV(TXEN0); }
+void inline USART_disable() { UCSR0B &= _BV(TXEN0); }
+void inline PCINT1_enable()
+{
+    PCIFR  |= _BV(PCIE1); // reset interrupt flag
+    PCICR  |= _BV(PCIE1);
+}
+void inline PCINT1_disable() { PCICR &= ~_BV(PCIE1); }
 void inline PCINT2_enable()
 {
     PCIFR  |= _BV(PCIE2); // reset interrupt flag
     PCICR  |= _BV(PCIE2);
 }
 void inline PCINT2_disable() { PCICR &= ~_BV(PCIE2); }
+
+///
+/// ENCODER interrupt
+volatile uint8_t encoder_val, prev_pc = 0;
+///////////////////////////////////////////
+ISR(PCINT1_vect)
+{
+    uint8_t pc_val = PINC & (_BV(ENC_A) | _BV(ENC_B));
+    if(prev_pc == (_BV(ENC_A) | _BV(ENC_B)) && pc_val != 0)
+    {
+      if(pc_val == _BV(ENC_A)) encoder_val++; else encoder_val--;
+    }
+    prev_pc = pc_val;
+}
 
 ///
 /// STEP pin interrupt
@@ -93,9 +112,11 @@ void emu_init()
     UCSR0B = 0x00; // disabled
 
     PCMSK2 |= _BV(PCINT20); // SET PCINT2 interrupt on PD4 (STEP pin)
+    PCMSK1 |= _BV(PCINT10) | _BV(PCINT11); // SET PCINT1 (PC2, PC3) Encoder
 
     // INIT pins and ports
     PORTD |= _BV(STEP) | _BV(MOTOR_ON) | _BV(DRIVE_SEL) | _BV(DIR_SEL) | _BV(SIDE_SEL); // set pull-up
+    PORTC |= _BV(ENC_A) | _BV(ENC_B) | _BV(BTN); // set pull-up
     
     DDRB &= ~_BV(INDEX); // SET INDEX HIGH
     DDRD &= ~(_BV(WP) | _BV(TRK00)); // Set RD, WP,TRK00 as input // | _BV(READ_DATA)
@@ -107,7 +128,6 @@ void emu_init()
 
     sei();   // ENABLE GLOBAL INTERRUPTS
 }
-
 
 /// Send byte in MFM encoding as 4 bytes at speed 1000000bps
 ////////////////////////////////////////////////////////////////
@@ -133,10 +153,45 @@ void send_byte(uint8_t sector_byte)
     prev_byte = sector_byte;
 }
 
+FILINFO disp_files[2], fnfo;
+DIR dir, first_dir;
+uint8_t f_index;
+
+/// f_attay_index - LCD display line number
+/// dire - direction 0 - forward, 1 - backward
+int8_t readdir(uint8_t f_array_ind, uint8_t dire)
+{
+    while(1)
+    {
+        if(dire)
+        {
+            if(!memcmp(&dir,&first_dir,sizeof(dir))) return -2;
+            if(pf_dirprev(&dir) != FR_OK) return -2;
+        }
+        else
+        {
+            if(pf_dirnext(&dir) != FR_OK) return -2;
+        }
+
+        if(pf_readdir(&dir, &fnfo, dire) != FR_OK) return -1;   // read directory entry
+
+        if(fnfo.fname[0] != 0 && ( (strcasestr(fnfo.fname,".trd") && (fnfo.fattrib & AM_DIR) == 0) || (fnfo.fattrib & AM_DIR) != 0) )
+        {
+            if(dire == 1) if(memcmp(&disp_files[0],&disp_files[1],sizeof(fnfo)) == 0) return 0;
+          
+            if(f_array_ind == 0) memcpy(&disp_files[1],&disp_files[0],sizeof(fnfo));
+            if(f_array_ind == 1) memcpy(&disp_files[0],&disp_files[1],sizeof(fnfo));
+            memcpy(&disp_files[f_array_ind%2],&fnfo,sizeof(fnfo));
+            return 0;
+        }
+    }
+    return -3;
+}
+
 ///
 /// MAIN Routine
 ///////////////////////////////////////////
-uint8_t s_cylinder, side, sector_byte, sector, cnt, tmpc;
+uint8_t s_cylinder, side, sector_byte, sector, cnt, tmpc, disp_index;
 union { uint16_t val; struct { byte low; byte high; } bytes; } CRC_H, CRC_D;
 
 int main()
@@ -156,8 +211,8 @@ int main()
         ///>>>>>> print "NO CARD PRESENT" on LCD
         LCD_clear();
         LCD_print(F("NO CARD INSERTED"));
-     
      NO_FILES:
+        memset(disp_files,0,sizeof(fnfo)*2);
         pf_mount(0);
         while(pf_mount(&fat) != FR_OK);
 
@@ -165,31 +220,105 @@ int main()
         LCD_clear();
         LCD_print(F(" CARD MOUNT OK."));
 
-        //uint32_t serial = card_read_serial();
+        uint32_t serial = card_read_serial();
 
         ///>>>>>> SELECT TRD IMAGE HERE
 
-        pf_opendir(&dir,"/");
+        pf_opendir(&dir,"/");        
 
-        uint16_t index = 0;        
+        // read 2 filename for start --------------------------------
+        LCD_clear();
+        disp_index = 0;
+        f_index = 0;
         
-        for(;;)
+        if(!readdir(2,0))
         {
-            if(pf_readdir(&dir,&fnfo) != FR_OK) goto MOUNT;   // read directory entry
-            if(strcasestr(fnfo.fname,".trd"))
-                if ((fnfo.fattrib & AM_DIR) == 0 && fnfo.fname[0] != 0) { index++; 
-                    if(index == 1) break; 
-                }
-            if(pf_dirnext(&dir) != FR_OK) break;
+            memcpy(&first_dir,&dir,sizeof(dir));
+            f_index++;
         }
-
-        if(index == 0)
+        if(!readdir(3,0)) f_index++;
+        
+        if(!f_index)
         {
-            LCD_clear();
             LCD_print(F("- NO TRD FILES -"));
-            delay(1000);
+            delay(5000);
             goto NO_FILES;
         }
+        
+        encoder_val = 100;
+        prev_pc = 0;
+    FILE_LIST:
+        LCD_clear();
+        LCD_print_char(0,disp_index,0);
+        LCD_print(2,0,disp_files[0].fname);
+        LCD_print(2,1,disp_files[1].fname);
+
+        PCINT1_enable();
+        while(PINC & _BV(BTN))
+        {
+            while(encoder_val == 100)
+            {
+              if(!(PINC & _BV(BTN))) break;
+            }
+            
+            if( serial != card_read_serial()) goto MOUNT;
+            
+            if(encoder_val > 105)
+            { // read next directory entry
+                cli();
+                if(disp_index == 0)
+                { // only move pointer
+                    if(f_index > 1)
+                    {
+                        disp_index=1;
+                        readdir(3,0);
+                        LCD_print_char(0,0,32);
+                        LCD_print_char(0,1,0);
+                    }
+                }
+                else
+                { // load next entry
+                    if(readdir(1,0) == 0)
+                    {
+                        LCD_clear();
+                        LCD_print_char(0,1,0);
+                        LCD_print(2,0,disp_files[0].fname);
+                        LCD_print(2,1,disp_files[1].fname);
+                    }
+                }
+                encoder_val = 100;
+                sei();
+            }
+            else if(encoder_val < 95)
+            { // read previous directory entry
+                cli();
+                if(disp_index == 1)
+                { // only move pointer
+                    if(f_index > 1)
+                    {
+                        disp_index=0;
+                        readdir(2,1);
+                        LCD_print_char(0,0,0);
+                        LCD_print_char(0,1,32);
+                    }
+                }
+                else
+                { // load previous entry
+                    if(readdir(0,1))
+                    {
+                        LCD_clear();
+                        LCD_print_char(0,0,0);
+                        LCD_print(2,0,disp_files[0].fname);
+                        LCD_print(2,1,disp_files[1].fname);
+                    }
+                }
+                encoder_val = 100;
+                sei();
+            }
+        }
+        PCINT1_disable();
+
+        while(!(PINC & _BV(BTN))); // wait button is released
 
 
         /////////////////////////////////////////////////////////////////
@@ -197,7 +326,7 @@ int main()
         // fnfo.fname contain short name (8.3) of selected TRD image
         ///////////////////////////////////////////////////////////////////////////////////////////////////
         // --------------------------------------------------------------------------------------------------------------------------------
-        if(pf_open(fnfo.fname) != FR_OK) goto MOUNT; // if unable to open file, usually if SD card is removed
+        if(pf_open(disp_files[disp_index].fname) != FR_OK) goto MOUNT; // if unable to open file, usually if SD card is removed
         
         LCD_clear();
         LCD_print_char(0);
@@ -234,7 +363,13 @@ int main()
         while (1)
         { /// DRIVE SELECT LOOP
 
-            while ( PIND & (_BV(MOTOR_ON) | _BV(DRIVE_SEL)) ); // wait drive select && motor_on
+            while ( PIND & (_BV(MOTOR_ON) | _BV(DRIVE_SEL)) )  // wait drive select && motor_on
+            {
+                if(!(PINC & _BV(BTN))) {
+                  while(!(PINC & _BV(BTN))); // wait button is released
+                  goto FILE_LIST;
+                }
+            }
 
             /// DEVICE ENABLED ==========================================================================================================================
 
@@ -288,12 +423,9 @@ int main()
                                 sector_table[i*2] = sector_table[i*2+1] = cur_fat;
                             }
                         }
-                        else
-                            cylinder_changed = 0;
-
                     }
 
-                    side = (~PIND) & 1;
+                    side = ((~SIDE_PIN) & _BV(SIDE_SEL)) >> SIDE_SEL;
                     // read sector data from SD card
                     if(card_readp(sector_data,fat.database + (sector_table[side*16 + sector] - 2) * fat.csize + ((s_cylinder*2 + side)*8 + sector/2) % fat.csize,(sector%2)*256,256) != RES_OK) { read_error = 1; break; }
 
@@ -317,8 +449,7 @@ int main()
                     if(sector == 0)
                     { // Send TRACK GAP4A ----------------------------------------------------
                         USART_enable();
-                        for(cnt = 0; cnt < 10; cnt++)
-                          send_byte(0x4E);
+                        for(cnt = 0; cnt < 10; cnt++) send_byte(0x4E);
                         DDRB |= _BV(INDEX); // SET INDEX LOW
                     }
 
