@@ -407,7 +407,7 @@ DIRECTORY_LIST:
         LCD_clear();
         LCD_print_char(0);
         LCD_print_char(32);
-        LCD_print(fnfo.fname);
+        LCD_print(disp_files[disp_index].fname);
 
         LCD_print(0,1, F("CYL: 00  HEAD: 0") );
 
