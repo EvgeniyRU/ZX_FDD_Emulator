@@ -255,7 +255,9 @@ DIRECTORY_LIST:
         LCD_clear();
         disp_index = 0;
         f_index = 0;
-        
+
+        uint8_t first = 1;
+
         if(!readdir(2,0))
         {
             memcpy(&first_dir,&dir,sizeof(dir));
@@ -288,8 +290,6 @@ DIRECTORY_LIST:
         LCD_clear();
         print_files(disp_index);
 
-        uint8_t first = 1;
-
         PCINT1_enable();
         while(PINC & _BV(BTN))
         {
@@ -306,8 +306,7 @@ DIRECTORY_LIST:
                 {
                     if(disp_index == 0)
                     { // only move pointer
-                        //if(readdir(3,0) == -1) goto MOUNT;
-                        if(first) first = 0; else pf_dirnext(&dir);
+                        if(first) first = 0; else if(readdir(3,0) == -1) goto MOUNT;
                         disp_index=1;
                         LCD_print_char(0,1,0);
                         LCD_print_char(0,0,32);
@@ -333,8 +332,7 @@ DIRECTORY_LIST:
                 {
                     if(disp_index == 1)
                     { // only move pointer
-                        //if(readdir(2,1) == -1) goto MOUNT;
-                        pf_dirprev(&dir);
+                        if(readdir(2,1) == -1) goto MOUNT;
                         disp_index=0;
                         LCD_print_char(0,0,0);
                         LCD_print_char(0,1,32);
@@ -600,6 +598,4 @@ DIRECTORY_LIST:
     } // MAIN LOOP END
 
 } // END MAIN
-
-
 
