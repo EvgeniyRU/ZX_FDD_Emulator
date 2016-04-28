@@ -2,6 +2,7 @@
 #define FDDCONFIG_H
 
 #define MAX_CYL 82          /// maximal cylinder supported by FDD
+#define MAX_DIR_LEVEL 10     /// maximal subfolders support, the higher value the more memory used.
 
 /// Floppy pinout configuration -----------------------------------------------------------------------------
 

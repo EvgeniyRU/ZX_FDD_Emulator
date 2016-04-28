@@ -76,10 +76,11 @@ FRESULT pf_dirnext (      // FR_OK:Succeeded, FR_NO_FILE:End of table, FR_DENIED
 {
     uint32_t clst, tmp_clst, tmp_sect;
     uint16_t i;
-    uint8_t dir[32];
+    uint8_t* dir;
     FATFS *fs = FatFs;
     FRESULT res;
 
+    dir = FatFs->buf;
     i = dj->index + 1;            // dj->index is entry number in directory
     tmp_clst = dj->clust;
     tmp_sect = dj->sect;
@@ -169,16 +170,16 @@ FRESULT pf_dirprev (      // FR_OK:Succeeded
 
 /// Find an object in the directory
 static FRESULT dir_find (
-    DIR *dj,       // Pointer to the directory object linked to the file name
-    uint8_t *dir   /* 32-byte working buffer */
+    DIR *dj       // Pointer to the directory object linked to the file name
 )
 {
     FRESULT res;
-    uint8_t c;
+    uint8_t c, *dir;
 
     res = dir_rewind(dj);           // Rewind directory object
     if (res != FR_OK) return res;
 
+    dir = FatFs->buf;
     do {
         res = card_readp(dir, dj->sect, (uint16_t)((dj->index % 16) * 32), 32)  // Read an entry
             ? FR_DISK_ERR : FR_OK;
@@ -197,12 +198,12 @@ static FRESULT dir_find (
 /// Read an object from the directory
 static FRESULT dir_read (
     DIR *dj,      // Pointer to the directory object to store read object name
-    uint8_t *dir,     /* 32-byte working buffer */
     uint8_t move_flag
 )
 {
     FRESULT res;
     uint8_t a, c;
+    uint8_t *dir = FatFs->buf;
 
     res = FR_NO_FILE;
     while (dj->sect)
@@ -213,7 +214,7 @@ static FRESULT dir_read (
           c = dir[DIR_Name];
           if (c == 0) { res = FR_NO_FILE; break; }    // Reached the end of directory
           a = dir[DIR_Attr] & AM_MASK;
-          if (c != 0xE5 && c != '.' && !(a & AM_VOL))  /* Is it a valid entry? */
+          if (c != 0xE5 && !(a & AM_VOL))  // Is it a valid entry?  && c != '.'
               break;            // FOUND, break
 
           if(move_flag)
@@ -275,12 +276,12 @@ static FRESULT create_name (
 /// Get file information from directory entry
 static void get_fileinfo (    // No return code
     DIR *dj,      // Pointer to the directory object
-    uint8_t *dir,      /* 32-byte working buffer */
     FILINFO *fno      // Pointer to store the file information
 )
 {
     uint8_t i, c;
     char *p;
+    uint8_t *dir = FatFs->buf;
 
     p = fno->fname;
     if (dj->sect)
@@ -328,11 +329,11 @@ uint32_t get_clust (
 /// Follow a file path
 static FRESULT follow_path (    // FR_OK(0): successful, !=0: error code
     DIR *dj,      // Directory object to return last directory and found object
-    uint8_t *dir,      /* 32-byte working buffer */
     const char *path    // Full-path string to find a file or directory
 )
 {
     FRESULT res;
+    uint8_t *dir;
   
     while (*path == ' ') path++;    /* Strip leading spaces */
     if (*path == '/') path++;         // Strip heading separator
@@ -349,9 +350,10 @@ static FRESULT follow_path (    // FR_OK(0): successful, !=0: error code
         {
             res = create_name(dj, &path);     // Get a file name segment
             if (res != FR_OK) break;
-            res = dir_find(dj, dir);       // Find it
+            res = dir_find(dj);       // Find it
             if (res != FR_OK) break;    /* Could not find the object */
             if (dj->fn[11]) break;      /* Last segment match. Function completed. */
+            dir = FatFs->buf;        // There is next segment. Follow the sub directory
             if (!(dir[DIR_Attr] & AM_DIR)) {      // Cannot follow because it is a file
                 res = FR_NO_FILE; break;
             }
@@ -445,13 +447,16 @@ uint8_t pf_open (const char *path)
 {
     FRESULT res;
     DIR dj;
-    uint8_t sp[12], dir[32];
+    uint8_t sp[12];
     FATFS *fs = FatFs;
+    uint8_t *dir;
 
     if (!fs) return FR_NOT_ENABLED;       // Check if file system is mounted
 
+    dir = fs->buf;
+    
     dj.fn = sp;
-    res = follow_path(&dj, dir, path);  /* Follow the file path */
+    res = follow_path(&dj, path);  /* Follow the file path */
     if (res != FR_OK) return res;         // File not found
 
     if (!dir[0] || (dir[DIR_Attr] & AM_DIR))      // It is a directory
@@ -573,15 +578,17 @@ FRESULT pf_opendir (
 )
 {
     FRESULT res;
-    uint8_t sp[12], dir[32];
+    uint8_t sp[12];
     FATFS *fs = FatFs;
+    uint8_t *dir;
     dj->index = 0;
 
     if (!fs) {              // Check file system is mounted
         res = FR_NOT_ENABLED;
     } else {
         dj->fn = sp;
-        res = follow_path(dj, dir, path);    /* Follow the path to the directory */
+        dir = FatFs->buf;
+        res = follow_path(dj, path);    /* Follow the path to the directory */
         if (res == FR_OK) {         // File found
             if (dir[0]) {         // It is not empty dir
                 if (dir[DIR_Attr] & AM_DIR)   // The object is a directory
@@ -605,27 +612,29 @@ FRESULT pf_readdir (
 )
 {
     FRESULT res;
-    uint8_t sp[12], dir[32];
+    uint8_t sp[12];
     FATFS *fs = FatFs;
+    uint8_t *dir;
 
 
     if (!fs)              // Check file system is mounted
         res = FR_NOT_ENABLED;
     else
     {
+        dir = fs->buf;
         dj->fn = sp;
         if (!fno)
             res = dir_rewind(dj);
         else
         {
-            res = dir_read(dj, dir, move_direction);
+            res = dir_read(dj, move_direction);
             if (res == FR_NO_FILE)
             {
                 dj->sect = 0;
                 res = FR_OK;
             }
             if (res == FR_OK)       // A valid entry is found
-                get_fileinfo(dj, dir, fno);  // Get the object information
+                get_fileinfo(dj, fno);  // Get the object information
         }
     }
 

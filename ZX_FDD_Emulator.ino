@@ -134,6 +134,8 @@ void emu_init()
     SPSR = _BV(SPI2X);             // double speed
 
     sei();   // ENABLE GLOBAL INTERRUPTS
+    
+    fat.buf = sector_data;
 }
 
 /// Send byte in MFM encoding as 4 bytes at speed 1000000bps
@@ -168,8 +170,10 @@ void print_files(uint8_t index)
     LCD_print_char(0,index,0);
     if((disp_files[0].fattrib & AM_DIR) != 0)
         LCD_print_char(1,0,1);
+    
     if((disp_files[1].fattrib & AM_DIR) != 0)
         LCD_print_char(1,1,1);
+    
     LCD_print(2,0,disp_files[0].fname);
     LCD_print(2,1,disp_files[1].fname);
 }
@@ -219,7 +223,6 @@ int main()
 
     emu_init(); // initialize FDD emulator
 
-
     while(1)
     { // MAIN LOOP START
         /// MAIN LOOP USED FOR SELECT and INIT SD CARD and other
@@ -239,11 +242,16 @@ int main()
 
         uint32_t serial = card_read_serial();
 
-        ///>>>>>> SELECT TRD IMAGE HERE
-
+        /// SELECT TRD IMAGE HERE ----------------------------------------------------------------------------
+        
         pf_opendir(&dir,"/");        
 
-        // read 2 filename for start --------------------------------
+        uint8_t dir_level = 0;
+        char dirs[MAX_DIR_LEVEL][13];
+        char* path = (char*)malloc(13*(MAX_DIR_LEVEL+1)+1);
+        path[0] = '/';
+        
+DIRECTORY_LIST:
         LCD_clear();
         disp_index = 0;
         f_index = 0;
@@ -257,9 +265,21 @@ int main()
         
         if(!f_index)
         {
-            LCD_print(F("- NO TRD FILES -"));
-            delay(5000);
-            goto NO_FILES;
+            if(!dir_level)
+            {
+                LCD_print(F(" -- NO FILES -- "));
+                _delay_ms(3000);
+                goto NO_FILES;
+            }
+            else
+            {
+                memset(disp_files,0,sizeof(fnfo)*2);
+                f_index = 1;
+                disp_index = 0;
+                disp_files[disp_index].fname[0] = '.';
+                disp_files[disp_index].fname[1] = '.';
+                disp_files[disp_index].fattrib |= AM_DIR;
+            }
         }
         
         encoder_val = 0;
@@ -267,6 +287,8 @@ int main()
     FILE_LIST:
         LCD_clear();
         print_files(disp_index);
+
+        uint8_t first = 1;
 
         PCINT1_enable();
         while(PINC & _BV(BTN))
@@ -280,25 +302,26 @@ int main()
             if(encoder_val > 0)
             { // read next directory entry
                 cli();
-                if(disp_index == 0)
-                { // only move pointer
-                    if(readdir(3,0) == -1) goto MOUNT;
-                    if(f_index > 1)
-                    {
-                      disp_index=1;
-                      LCD_print_char(0,1,0);
-                      LCD_print_char(0,0,32);
+                if(f_index > 1)
+                {
+                    if(disp_index == 0)
+                    { // only move pointer
+                        //if(readdir(3,0) == -1) goto MOUNT;
+                        if(first) first = 0; else pf_dirnext(&dir);
+                        disp_index=1;
+                        LCD_print_char(0,1,0);
+                        LCD_print_char(0,0,32);
                     }
-                }
-                else
-                { // load next entry
-                    uint8_t res = readdir(1,0);
-                    if(res == 0)
-                    {
-                        LCD_clear();
-                        print_files(disp_index);
+                    else
+                    { // load next entry
+                        uint8_t res = readdir(1,0);
+                        if(res == 0)
+                        {
+                            LCD_clear();
+                            print_files(disp_index);
+                        }
+                        else if(res == -1) goto MOUNT;
                     }
-                    else if(res == -1) goto MOUNT;
                 }
                 encoder_val = 0;
                 sei();
@@ -306,32 +329,64 @@ int main()
             else if(encoder_val < 0)
             { // read previous directory entry
                 cli();
-                if(disp_index == 1)
-                { // only move pointer
-                    if(readdir(2,1) == -1) goto MOUNT;
-                    if(f_index > 1) {
-                      disp_index=0;
-                      LCD_print_char(0,0,0);
-                      LCD_print_char(0,1,32);
+                if(f_index > 1)
+                {
+                    if(disp_index == 1)
+                    { // only move pointer
+                        //if(readdir(2,1) == -1) goto MOUNT;
+                        pf_dirprev(&dir);
+                        disp_index=0;
+                        LCD_print_char(0,0,0);
+                        LCD_print_char(0,1,32);
                     }
-                }
-                else
-                { // load previous entry
-                    uint8_t res = readdir(0,1);
-                    if(res == 0)
-                    {
-                        LCD_clear();
-                        print_files(disp_index);
+                    else
+                    { // load previous entry
+                        uint8_t res = readdir(0,1);
+                        if(res == 0)
+                        {
+                            LCD_clear();
+                            print_files(disp_index);
+                        }
+                        else if(res == -1) goto MOUNT;
                     }
-                    else if(res == -1) goto MOUNT;
                 }
                 encoder_val = 0;
                 sei();
             }
         }
-        PCINT1_disable();
 
         while(!(PINC & _BV(BTN))); // wait button is released
+
+        uint8_t pind = 1;
+
+        // if directory selected
+        if((disp_files[disp_index].fattrib & AM_DIR) != 0)
+        {
+            if(!memcmp(disp_files[disp_index].fname,"..",2))
+            {
+                if(dir_level > 0) dir_level--;
+            }
+            else
+            if(dir_level < MAX_DIR_LEVEL)
+                memcpy(&dirs[dir_level++],disp_files[disp_index].fname,13);
+            
+            if(dir_level == 0) pf_opendir(&dir,"/"); else
+            {
+                for(uint8_t i = 0; i < dir_level; i++)
+                {
+                    memcpy(&path[pind],&dirs[i],strlen(dirs[i]));
+                    pind += strlen(dirs[i]);
+                    path[pind++]='/';
+                }
+                path[--pind] = 0;
+                pf_opendir(&dir,path);
+            }
+            goto DIRECTORY_LIST;
+        }
+
+        PCINT1_disable();
+
+        /// /END SELECT TRD IMAGE ------------------------------------------------------------------------------
 
 
         /////////////////////////////////////////////////////////////////
@@ -339,7 +394,17 @@ int main()
         // fnfo.fname contain short name (8.3) of selected TRD image
         ///////////////////////////////////////////////////////////////////////////////////////////////////
         // --------------------------------------------------------------------------------------------------------------------------------
-        if(pf_open(disp_files[disp_index].fname) != FR_OK) goto MOUNT; // if unable to open file, usually if SD card is removed
+        
+        for(uint8_t i = 0; i < dir_level; i++)
+        {
+            memcpy(&path[pind],&dirs[i],strlen(dirs[i]));
+            pind += strlen(dirs[i]);
+            path[pind++]='/';
+        }
+        memcpy(path + pind, disp_files[disp_index].fname,strlen(disp_files[disp_index].fname));
+        path[pind + strlen(disp_files[disp_index].fname)]=0;
+
+        if(pf_open(path) != FR_OK) goto MOUNT; // if unable to open file, usually if SD card is removed
         
         LCD_clear();
         LCD_print_char(0);

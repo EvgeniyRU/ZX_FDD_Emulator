@@ -19,6 +19,7 @@ typedef struct _FATFS_ {
   uint32_t org_clust; // File start cluster
   uint32_t curr_clust;// File current cluster
   uint32_t dsect;     // File current data sector
+  uint8_t* buf;       // temporary Buffer for directory
 } FATFS;
 
 
@@ -96,8 +97,8 @@ uint16_t pf_read (void*, uint16_t);	/* Read data from a file */
 FRESULT pf_lseek (uint32_t);				/* Move file pointer of a file object */
 FRESULT pf_opendir (DIR*, const char*);	/* Open an existing directory */
 FRESULT pf_readdir (DIR*, FILINFO*, uint8_t);	/* Read a directory item */
-FRESULT pf_dirnext (DIR *);
-FRESULT dir_rewind (DIR *);
-FRESULT pf_dirprev (DIR *);
+FRESULT pf_dirnext (DIR*);
+FRESULT dir_rewind (DIR*);
+FRESULT pf_dirprev (DIR*);
 
 #endif /* FAT32_MODULE_H */
