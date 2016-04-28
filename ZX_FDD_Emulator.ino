@@ -195,7 +195,7 @@ int8_t readdir(uint8_t f_array_ind, uint8_t dire)
         }
 
         if(pf_readdir(&dir, &fnfo, dire) != FR_OK) return -1;   // read directory entry
-
+        
         if(fnfo.fname[0] != 0 && ( (strcasestr(fnfo.fname,".trd") && (fnfo.fattrib & AM_DIR) == 0) || (fnfo.fattrib & AM_DIR) != 0) )
         {
             if(dire == 1) if(memcmp(&disp_files[0],&disp_files[1],sizeof(fnfo)) == 0) return 0;
@@ -214,6 +214,7 @@ int8_t readdir(uint8_t f_array_ind, uint8_t dire)
 ///////////////////////////////////////////
 uint8_t s_cylinder, side, sector_byte, sector, cnt, tmpc, disp_index;
 union { uint16_t val; struct { byte low; byte high; } bytes; } CRC_H, CRC_D;
+uint8_t dir_level, first, pind;
 
 int main()
 {
@@ -222,6 +223,10 @@ int main()
     LCD_init();
 
     emu_init(); // initialize FDD emulator
+
+    char dirs[MAX_DIR_LEVEL][13];
+    char* path = (char*)malloc(13*(MAX_DIR_LEVEL+1)+1);
+    path[0] = '/';
 
     while(1)
     { // MAIN LOOP START
@@ -246,24 +251,20 @@ int main()
         
         pf_opendir(&dir,"/");        
 
-        uint8_t dir_level = 0;
-        char dirs[MAX_DIR_LEVEL][13];
-        char* path = (char*)malloc(13*(MAX_DIR_LEVEL+1)+1);
-        path[0] = '/';
+        dir_level = 0;
         
 DIRECTORY_LIST:
         LCD_clear();
         disp_index = 0;
         f_index = 0;
 
-        uint8_t first = 1;
+        first = 1;
 
-        if(!readdir(2,0))
-        {
+        if(readdir(2,0) == 0) {
             memcpy(&first_dir,&dir,sizeof(dir));
             f_index++;
         }
-        if(!readdir(3,0)) f_index++;
+        if(readdir(3,0) == 0) f_index++;
         
         if(!f_index)
         {
@@ -316,6 +317,7 @@ DIRECTORY_LIST:
                         uint8_t res = readdir(1,0);
                         if(res == 0)
                         {
+                            first = 0;
                             LCD_clear();
                             print_files(disp_index);
                         }
@@ -333,11 +335,11 @@ DIRECTORY_LIST:
                     if(disp_index == 1)
                     { // only move pointer
                         if(readdir(2,1) == -1) goto MOUNT;
-                        disp_index=0;
+                        disp_index=0;                        
                         LCD_print_char(0,0,0);
                         LCD_print_char(0,1,32);
                     }
-                    else
+                    else if(!first)
                     { // load previous entry
                         uint8_t res = readdir(0,1);
                         if(res == 0)
@@ -355,7 +357,7 @@ DIRECTORY_LIST:
 
         while(!(PINC & _BV(BTN))); // wait button is released
 
-        uint8_t pind = 1;
+        pind = 1;
 
         // if directory selected
         if((disp_files[disp_index].fattrib & AM_DIR) != 0)
