@@ -40,13 +40,14 @@ const uint8_t crc7_table[256] PROGMEM = {
   0x3b, 0x32, 0x29, 0x20, 0x1f, 0x16, 0x0d, 0x04, 0x6a, 0x63, 0x78, 0x71, 0x4e, 0x47, 0x5c, 0x55, 0x22, 0x2b, 0x30, 0x39, 0x06, 0x0f, 0x14, 0x1d,
   0x25, 0x2c, 0x37, 0x3e, 0x01, 0x08, 0x13, 0x1a, 0x6d, 0x64, 0x7f, 0x76, 0x49, 0x40, 0x5b, 0x52, 0x3c, 0x35, 0x2e, 0x27, 0x18, 0x11, 0x0a, 0x03,
   0x74, 0x7d, 0x66, 0x6f, 0x50, 0x59, 0x42, 0x4b, 0x17, 0x1e, 0x05, 0x0c, 0x33, 0x3a, 0x21, 0x28, 0x5f, 0x56, 0x4d, 0x44, 0x7b, 0x72, 0x69, 0x60,
-  0x0e, 0x07, 0x1c, 0x15, 0x2a, 0x23, 0x38, 0x31, 0x46, 0x4f, 0x54, 0x5d, 0x62, 0x6b, 0x70, 0x79
+  0x0e, 0x07, 0x1c, 0x15, 0x2a, 0x23, 0x38, 0x31,
+  0x46, 0x4f, 0x54, 0x5d, 0x62, 0x6b, 0x70, 0x79
 };
 
 // Send a command to CARD
 uint8_t send_cmd(uint8_t cmd, uint32_t param, uint8_t cnt)
 {
-    uint8_t send[6];
+    uint8_t send_buf[6];
     uint8_t i, res;
 
     DESELECT();
@@ -57,27 +58,26 @@ uint8_t send_cmd(uint8_t cmd, uint32_t param, uint8_t cnt)
         if (res > 1) return res;
     }
 
+    send_buf[0] = cmd;    // Start + Command index
+    send_buf[1] = param >> 24;  // bits [31..24]
+    send_buf[2] = param >> 16;  // bits [23..16]
+    send_buf[3] = param >> 8; // bits [15..08]
+    send_buf[4] = param;  // bits [07..00]
+
+    // CRC7 calculatuin
+    uint8_t crc = 0;
+    for(i = 0; i < 5; i++ )
+        crc = pgm_read_byte_near(crc7_table + ((crc << 1) ^ send_buf[i]));
+
+    send_buf[5] = (crc << 1) | 1; // CRC + Parity
+
     /* Select the card */
     DESELECT();
     spiRead();
     SELECT();
     spiRead();
 
-
-    send[0] = cmd;    // Start + Command index
-    send[1] = param >> 24;  // bits [31..24]
-    send[2] = param >> 16;  // bits [23..16]
-    send[3] = param >> 8; // bits [15..08]
-    send[4] = param;  // bits [07..00]
-
-    // CRC7 calculatuin
-    uint8_t crc = 0;
-    for(uint8_t  i = 0; i < 5; i++ )
-        crc = pgm_read_byte_near(crc7_table + ((crc << 1) ^ send[i]));
-
-    send[5] = (crc << 1) | 1; // CRC + Parity
-
-    for( i = 0; i < 6 ; i++) spiSend(send[i]);      // send command
+    for( i = 0; i < 6 ; i++) spiSend(send_buf[i]);      // send command
     for( i = 0; i < 128; i++) if((res = spiRead()) != 0xFF) break;  // wait for response and get it
     for( i = 0; i < cnt; i++) resp_buf[i] = spiRead();    // read more response if not R1 command
 
