@@ -54,9 +54,9 @@ uint8_t send_cmd(uint8_t cmd, uint32_t param, uint8_t cnt)
     spiSend((uint8_t)(param >> 8));
     spiSend((uint8_t)param);
 
-    i = 0x01;             /* Dummy CRC + Stop */
-    if (cmd == CMD0) i = 0x95;      /* Valid CRC for CMD0(0) */
-    if (cmd == CMD8) i = 0x87;      /* Valid CRC for CMD8(0x1AA) */
+    i = 0xFF;                       // Dummy CRC + Stop bit
+    if (cmd == CMD0) i = 0x95;      // Valid CRC for CMD0(0)
+    if (cmd == CMD8) i = 0x87;      // Valid CRC for CMD8(0x1AA)
     spiSend(i);
 
     for( i = 0; i < 128; i++) if((res = spiRead()) != 0xFF) break;  // wait for response and get it
@@ -75,7 +75,7 @@ CSTATUS card_initialize (void)
   CardType = 0;
 
   DESELECT();
-  for (n = 10; n; n--) spiRead(); // wait some time
+  for (n = 20; n; n--) spiRead(); // wait some time
 
   if (send_cmd(CMD0, 0, 0) == 1)
   { // Entered Idle state

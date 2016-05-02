@@ -362,7 +362,7 @@ DIRECTORY_LIST:
         pind = 1;
 
         // if directory selected
-        if((disp_files[disp_index].fattrib & AM_DIR) != 0)
+        if( disp_files[disp_index].fattrib & AM_DIR )
         {
             if(!memcmp(disp_files[disp_index].fname,"..",2))
             {
