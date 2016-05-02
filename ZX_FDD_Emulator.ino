@@ -127,8 +127,8 @@ void emu_init()
  
     // Init SPI for SD Card
     SPI_DDR = _BV(SPI_MOSI) | _BV(SPI_SCK) | _BV(SPI_CS); //set output mode for MOSI, SCK ! move SS to GND
-    SPCR = _BV(MSTR) | _BV(SPE);   // Master mode, SPI enable, clock speed MCU_XTAL/4, LSB first
-    SPSR = _BV(SPI2X);             // double speed
+    SPCR = _BV(MSTR) | _BV(SPE);   // Master mode, SPI enable, clock rate f_osc/4, LSB first
+    SPSR &= ~_BV(SPI2X);           // clear double speed
 
     sei();   // ENABLE GLOBAL INTERRUPTS
 }
