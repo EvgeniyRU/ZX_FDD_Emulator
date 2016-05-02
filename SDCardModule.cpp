@@ -94,7 +94,7 @@ CSTATUS card_initialize (void)
   CardType = 0;
 
   DESELECT();
-  for (n = 10; n; n--) spiRead(); // wait some time
+  for (n = 100; n; n--) spiRead(); // wait some time
 
   if (send_cmd(CMD0, 0, 0) == 1)
   { // Entered Idle state
