@@ -383,6 +383,7 @@ DIRECTORY_LIST:
                 path[--pind] = 0;
                 pf_opendir(&dir,path);
             }
+            memset(disp_files,0,sizeof(fnfo)*2);
             goto DIRECTORY_LIST;
         }
 
