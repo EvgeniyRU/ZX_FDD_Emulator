@@ -2,7 +2,7 @@
 #define FDDCONFIG_H
 
 #define MAX_CYL 82          /// maximal cylinder supported by FDD
-#define MAX_DIR_LEVEL 10     /// maximal subfolders support, the higher value the more memory used.
+#define MAX_DIR_LEVEL 7     /// maximal subfolders support, the higher value the more memory used.
 
 /// Floppy pinout configuration -----------------------------------------------------------------------------
 
@@ -17,6 +17,8 @@
 #define DRIVE_SEL PD7   // pin 7,  DRIVE SELECT CONNECT DS0-DS3 using jumper    (INPUT)
 
 #define INDEX     PB0   // pin 8,  INDEX                                        (OUTPUT)
+
+/// Encoder pinout configuration ----------------------------------------------------------------------------
 
 #define ENC_A     PC2
 #define ENC_B     PC3

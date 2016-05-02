@@ -10,13 +10,10 @@
 #include "Fat32Module.h"
 #include "LCDModule.h"
 
-FATFS fat;
 
 /// EMULATOR START -------------------------------------------------------------------------------------------------
 
-uint8_t prev_byte, cylinder_changed, max_cylinder, cylinder, A1_mark = 0;
-uint8_t sector_data[256]; // sector data
-uint32_t clust_table[MAX_CYL], sector_table[32]; // Cluster table, Cluster table for sectors in cylinder
+uint8_t cylinder_changed, max_cylinder, cylinder, prev_byte, A1_mark = 0;
 
 const uint16_t Crc16Table[256] PROGMEM = {
     0x0000, 0x1021, 0x2042, 0x3063, 0x4084, 0x50A5, 0x60C6, 0x70E7, 0x8108, 0x9129, 0xA14A, 0xB16B, 0xC18C, 0xD1AD, 0xE1CE, 0xF1EF,
@@ -134,11 +131,9 @@ void emu_init()
     SPSR = _BV(SPI2X);             // double speed
 
     sei();   // ENABLE GLOBAL INTERRUPTS
-    
-    fat.buf = sector_data;
 }
 
-/// Send byte in MFM encoding as 4 bytes at speed 1000000bps
+/// Send byte in MFM as 4 bytes at speed 1000000bps
 ////////////////////////////////////////////////////////////////
 void send_byte(uint8_t sector_byte)
 {
@@ -162,9 +157,10 @@ void send_byte(uint8_t sector_byte)
     prev_byte = sector_byte;
 }
 
+/// Print 2 files on LCD and file pointer
+////////////////////////////////////////////////////////////////
 FILINFO disp_files[2], fnfo;
 DIR dir, first_dir;
-uint8_t f_index;
 void print_files(uint8_t index)
 {
     LCD_print_char(0,index,0);
@@ -180,6 +176,8 @@ void print_files(uint8_t index)
 
 /// f_attay_index - LCD display line number
 /// dire - direction 0 - forward, 1 - backward
+/// READ DIRECTORY ENTRIES
+/////////////////////////////////////////////////////
 int8_t readdir(uint8_t f_array_ind, uint8_t dire)
 {
     while(1)
@@ -209,24 +207,28 @@ int8_t readdir(uint8_t f_array_ind, uint8_t dire)
     return -3;
 }
 
+
 ///
 /// MAIN Routine
 ///////////////////////////////////////////
-uint8_t s_cylinder, side, sector_byte, sector, cnt, tmpc, disp_index;
-union { uint16_t val; struct { byte low; byte high; } bytes; } CRC_H, CRC_D;
-uint8_t dir_level, first, pind;
-
 int main()
 {
+    uint8_t sector_data[256]; // sector data
+    uint32_t clust_table[MAX_CYL], sector_table[32]; // Cluster table, Cluster table for sectors in cylinder
+    uint8_t dir_level, first, pind, s_cylinder, side, sector_byte, sector, cnt, tmpc, disp_index;
+    union { uint16_t val; struct { byte low; byte high; } bytes; } CRC_H, CRC_D;
+    char dirs[MAX_DIR_LEVEL][13];
+    char path[13*(MAX_DIR_LEVEL+1)+1];
+    uint8_t f_index;
+    FATFS fat;
+    
     //init(); // init arduino libraries
 
     LCD_init();
 
     emu_init(); // initialize FDD emulator
-
-    char dirs[MAX_DIR_LEVEL][13];
-    char* path = (char*)malloc(13*(MAX_DIR_LEVEL+1)+1);
     path[0] = '/';
+    fat.buf = sector_data;
 
     while(1)
     { // MAIN LOOP START
@@ -391,7 +393,7 @@ DIRECTORY_LIST:
 
         /////////////////////////////////////////////////////////////////
         // MOUNT TRD IMAGE and init Track Cluster table
-        // fnfo.fname contain short name (8.3) of selected TRD image
+        // disp_files[disp_index].fname contain short name (8.3) of selected TRD image
         ///////////////////////////////////////////////////////////////////////////////////////////////////
         // --------------------------------------------------------------------------------------------------------------------------------
         
@@ -435,6 +437,8 @@ DIRECTORY_LIST:
         } // --------------------------------------------------------------------------------------------------------------------------------
         ///////////////////////////////////////////////////////////////////////////////////////////////////
 
+
+        /// Emulator loop --------------
         cylinder = 0;
         s_cylinder = 255;
         cylinder_changed = 0;
