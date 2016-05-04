@@ -24,27 +24,26 @@ uint32_t get_fat (      // 1:IO error, Else:Cluster status
   uint32_t clst      // Cluster# to get the link information
 )
 {
-  uint16_t wc, bc, ofs;
-  uint32_t buf;
-  FATFS *fs = FatFs;
+    uint16_t wc, bc, ofs;
+    uint32_t buf;
+    FATFS *fs = FatFs;
 
-  // disable this check as useless
-  //if (clst < 2 || clst >= fs->max_clust)        // Range check
-  //  return 1;
+    if (clst < 2 || clst >= fs->max_clust)        // Range check
+        return 1;
 
-  if (card_readp(&buf, fs->fatbase + clst / 128, ((uint8_t)clst % 128) * 4, 4)) return 1;  
-  return buf & 0x0FFFFFFF;
+    if (card_readp(&buf, fs->fatbase + clst / 128, ((uint8_t)clst % 128) * 4, 4)) return 1;  
+    return buf & 0x0FFFFFFF;
 }
 
-/// Get sector from cluster
+/// Get cluster LBA number
 static uint32_t clust2sect (    // !=0: Sector number, 0: Failed - invalid cluster#
-  uint32_t clst      // Cluster# to be converted
+    uint32_t clst      // Cluster# to be converted
 )
 {
-  FATFS *fs = FatFs;
-  clst -= 2;
-  if (clst >= (fs->max_clust - 2)) return 0;      // Invalid cluster#
-  return clst * fs->csize + fs->database;
+    FATFS *fs = FatFs;
+    clst -= 2;
+    if (clst >= (fs->max_clust - 2)) return 0;      // Invalid cluster#
+    return clst * fs->csize + fs->database;
 }
 
 
