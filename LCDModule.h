@@ -17,7 +17,7 @@
 
 #define LCD_DELAY_ENABLE_PULSE 1      // enable signal pulse width in micro seconds
 
-#if (CRYSTALL_8MHZ == 1)
+#if (CRYSTAL_8MHZ == 1)
   #define SCL_CLOCK  50000L
 #else
   #define SCL_CLOCK  100000L

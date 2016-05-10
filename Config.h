@@ -6,7 +6,7 @@
 #include <util/delay.h>
 
 ////////////////////////////////////////////////////////////////////////////////////////
-#define CRYSTALL_8MHZ 0     /// set to 1 if you use 8MHz internal or external oscillator
+#define CRYSTAL_8MHZ 0     /// set to 1 if you use 8MHz internal or external oscillator
 ////////////////////////////////////////////////////////////////////////////////////////
 
 #define MAX_CYL 82          /// maximal cylinder supported by FDD. More cylinders - more memory used.

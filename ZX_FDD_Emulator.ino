@@ -170,7 +170,7 @@ int main()
     // Setup USART in MasterSPI mode 1000000bps
     UBRR0H = 0x00;
 
-#if (CRYSTALL_8MHZ == 1)
+#if (CRYSTAL_8MHZ == 1)
     UBRR0L = 0x03; // 1000 kbps for 8MHz internal oscillator
 #else
     UBRR0L = 0x07; // 1000 kbps for 16MHz external oscillator
