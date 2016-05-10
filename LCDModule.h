@@ -2,6 +2,7 @@
 #define LCD_MODULE_H
 
 #include "Config.h"
+#include <Arduino.h>
 
 // I2C Extender settings
 #define LCDEX_ADDR  0x4E  // Extender address, 0x27 for standard chinese module
@@ -16,7 +17,11 @@
 
 #define LCD_DELAY_ENABLE_PULSE 1      // enable signal pulse width in micro seconds
 
-#define SCL_CLOCK  100000L
+#if (CRYSTALL_8MHZ == 1)
+  #define SCL_CLOCK  50000L
+#else
+  #define SCL_CLOCK  100000L
+#endif
 
 #define TWI_PORT        PORTC
 #define TWI_DDR         DDRC

@@ -2,6 +2,12 @@
 #define FDDCONFIG_H
 
 #include <avr/pgmspace.h>
+#include <util/atomic.h>
+#include <util/delay.h>
+
+////////////////////////////////////////////////////////////////////////////////////////
+#define CRYSTALL_8MHZ 0     /// set to 1 if you use 8MHz internal or external oscillator
+////////////////////////////////////////////////////////////////////////////////////////
 
 #define MAX_CYL 82          /// maximal cylinder supported by FDD. More cylinders - more memory used.
 #define MAX_DIR_LEVEL 10    /// maximal subfolders support 15 MAX. The higher level the more memory used

@@ -3,7 +3,6 @@
 // Current version opens first TRD file from SD Card root folder and use it to emulate floppy disk
 // SD CARD: Supported only FAT32 file system, cards SDC/SDHC/MMC, all cluster sizes from 512 bytes to 64k
 //
-#include <util/atomic.h>
 
 #include "Config.h"
 #include "SDCardModule.h"
@@ -72,7 +71,6 @@ ISR(PCINT2_vect)
     asm("PCINT_END:");
 }
 
-
 /// Send byte in MFM as 4 bytes at speed 1000000bps
 ////////////////////////////////////////////////////////////////
 void send_byte(uint8_t sector_byte)
@@ -80,9 +78,9 @@ void send_byte(uint8_t sector_byte)
     // inverted, very small MFM table for fast converting
     static uint8_t MFM_tab[8] = { 0x77,0x7D,0xDF,0xDD,0xF7,0xFD,0xDF,0xDD };
 
+    loop_until_bit_is_set(UCSR0A,UDRE0);
     uint8_t tmp = sector_byte >> 6; // get first MFM byte from table (first 4 bits)
     if((prev_byte & 1) && !(sector_byte & 0x80)) tmp |= 0x04; // check previous last bit and correct first clock bit of a new byte
-    loop_until_bit_is_set(UCSR0A,UDRE0);
     UDR0 = MFM_tab[tmp];
 
     loop_until_bit_is_set(UCSR0A,UDRE0);
@@ -171,7 +169,12 @@ int main()
 
     // Setup USART in MasterSPI mode 1000000bps
     UBRR0H = 0x00;
-    UBRR0L = 0x07; // 1000 kbps
+
+#if (CRYSTALL_8MHZ == 1)
+    UBRR0L = 0x03; // 1000 kbps for 8MHz internal oscillator
+#else
+    UBRR0L = 0x07; // 1000 kbps for 16MHz external oscillator
+#endif
     UCSR0C = 0xC0;
     UCSR0A = 0x00;
     UCSR0B = 0x00; // disabled
@@ -189,7 +192,7 @@ int main()
     // Init SPI for SD Card
     SPI_DDR = _BV(SPI_MOSI) | _BV(SPI_SCK) | _BV(SPI_CS); //set output mode for MOSI, SCK ! move SS to GND
     SPCR = _BV(MSTR) | _BV(SPE);   // Master mode, SPI enable, clock rate f_osc/4, LSB first
-    SPSR &= ~_BV(SPI2X);           // clear double speed
+    SPSR |= _BV(SPI2X);           // set double speed
 
     sei();   // ENABLE GLOBAL INTERRUPTS
     path = (char*)(sector_data + 32); // use as temporary buffer for path generation
@@ -543,9 +546,9 @@ DIRECTORY_LIST:
                     // Send CRC
                     send_byte(CRC_D.bytes.high);
                     send_byte(CRC_D.bytes.low);
+
                     // Send sector GAP ------------------------------------------------------
-                    for(cnt = 0; cnt < 54; cnt++)
-                        send_byte(0x4E);
+                    for(cnt = 0; cnt < 54; cnt++) send_byte(0x4E);
 
                     if(cylinder_changed || (PIND & _BV(MOTOR_ON))) break; // if cylinder is changed or FDD is disabled
 
