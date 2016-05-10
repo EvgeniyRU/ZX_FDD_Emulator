@@ -148,7 +148,7 @@ int8_t readdir(uint8_t f_array_ind, uint8_t dire)
 
 uint8_t sector_data[256]; // sector data
 uint32_t clust_table[MAX_CYL], sector_table[32]; // Cluster table, Cluster table for sectors in cylinder
-uint8_t dir_level, first, pind, s_cylinder, side, sector_byte, sector, cnt, tmpc, disp_index, f_index;
+uint8_t dir_level, first, pind, s_cylinder, side, sector_byte, sector, cnt, tmpc, disp_index, f_index, eeprom_file, btn_cnt;
 union { uint16_t val; struct { byte low; byte high; } bytes; } CRC_H, CRC_D;
 char dirs[MAX_DIR_LEVEL][13];
 char *path;
@@ -210,6 +210,7 @@ int main()
         LCD_clear();
         LCD_print(F("NO CARD INSERTED"));
      NO_FILES:
+        eeprom_file = 0;
         memset(disp_files,0,sizeof(fnfo)*2);
         pf_mount(0);
         while(pf_mount(&fat) != FR_OK);
@@ -219,6 +220,24 @@ int main()
         LCD_print(F(" CARD MOUNT OK."));
 
         uint32_t serial = card_read_serial();
+
+
+        DESELECT();
+        eeprom_read_block((void*)path,(const void*)4,224);
+        
+        if(path[0] != 0)
+        {
+            eeprom_file = 1;
+            uint32_t serial2;
+            eeprom_read_block((void*)&serial2,(const void*)0,4);
+            if(serial2 != serial)
+            {
+                eeprom_write_block((const void*)&serial, (void*)0, 4);
+                eeprom_write_byte((uint8_t*)4, 0);
+                goto NO_FILES;
+            }
+            goto OPEN_FILE;
+        }
 
         /// SELECT TRD IMAGE HERE ----------------------------------------------------------------------------
         
@@ -328,7 +347,13 @@ DIRECTORY_LIST:
             }
         }
 
-        while(!(PINC & _BV(BTN))); // wait button is released
+        btn_cnt = 0;
+        while(!(PINC & _BV(BTN)))
+        {
+          btn_cnt++;
+          _delay_ms(100);
+          ; // wait button is released
+        }
 
         pind = 1;
         path[0] = '/';
@@ -379,12 +404,34 @@ DIRECTORY_LIST:
         memcpy(path + pind, disp_files[disp_index].fname,strlen(disp_files[disp_index].fname));
         path[pind + strlen(disp_files[disp_index].fname)]=0;
 
-        if(pf_open(path) != FR_OK) goto MOUNT; // if unable to open file, usually if SD card is removed
+OPEN_FILE:
+
+        if(pf_open(path) != FR_OK) { // if unable to open file, usually if SD card is removed
+            if(eeprom_file == 1) {
+                DESELECT();
+                eeprom_write_byte((uint8_t*)4, 0);
+            }
+            goto MOUNT;
+        }
+
+        if(eeprom_file == 0 && btn_cnt > 20) ///////////////////////////////////////////////////
+        {
+            DESELECT();
+            eeprom_write_block((const void*)&serial,(void*)0, 4);
+            eeprom_write_block((const void*)path, (void*)4, strlen(path)+1);
+        }
         
         LCD_clear();
         LCD_print_char(0);
         LCD_print_char(32);
-        LCD_print(disp_files[disp_index].fname);
+        if(eeprom_file == 0)
+            LCD_print(disp_files[disp_index].fname);
+        else
+        {
+            uint8_t ptr = strlen(path);
+            while(path[ptr] != '/') ptr--;
+            LCD_print((char*)&path[ptr+1]);
+        }
 
         LCD_print(0,1, F("CYL: 00  HEAD: 0") );
 
@@ -423,6 +470,10 @@ DIRECTORY_LIST:
             {
                 if(!(PINC & _BV(BTN))) {
                   while(!(PINC & _BV(BTN))); // wait button is released
+                  if(eeprom_file) {
+                    eeprom_write_byte((uint8_t*)4, 0);
+                    goto MOUNT;
+                  }
                   goto FILE_LIST;
                 }
             }

@@ -4,7 +4,7 @@
 ////////////////////////////////////////////////////////////////////////////////////////
 #define CRYSTAL_8MHZ 0    /// set to 1 if you use 8MHz internal or external oscillator
 
-#if (CRYSTAL_8MHZ == 1)   /// don't change these 3 strings
+#if (CRYSTAL_8MHZ == 1)   /// don't change these 4 lines
   #undef F_CPU
   #define F_CPU 8000000L
 #endif
