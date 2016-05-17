@@ -1,7 +1,8 @@
 // ZX-Spectrum FDD Emulator
 //
-// Current version opens first TRD file from SD Card root folder and use it to emulate floppy disk
+// It use TRD file from SD Card to emulate floppy disk. File is selected by encoder.
 // SD CARD: Supported only FAT32 file system, cards SDC/SDHC/MMC, all cluster sizes from 512 bytes to 64k
+// Read-only mode, write mode is not supported!
 //
 
 #include "Config.h"
@@ -17,8 +18,21 @@ uint8_t cylinder_changed, max_cylinder, cylinder, prev_byte, A1_mark = 0;
 ///
 /// Interrupts enable/disable functions
 ///////////////////////////////////////////
-void inline USART_enable() { UCSR0B |= _BV(TXEN0); }
-void inline USART_disable() { UCSR0B &= _BV(TXEN0); }
+void inline USART_enable()
+{
+  cli();
+  /* Set MSPI mode of operation and SPI data mode 0. */
+  UCSR0C = _BV(UMSEL01) | _BV(UMSEL00);    
+  UCSR0B |= _BV(TXEN0);
+  sei();
+}
+void inline USART_disable()
+{
+  cli();
+  UCSR0C &= ~(_BV(UMSEL01) | _BV(UMSEL00));
+  UCSR0B &= ~_BV(TXEN0);
+  sei();
+}
 void inline PCINT1_enable() { PCIFR  |= _BV(PCIE1); PCICR  |= _BV(PCIE1); }
 void inline PCINT1_disable() { PCICR &= ~_BV(PCIE1); }
 void inline PCINT2_enable() { PCIFR  |= _BV(PCIE2); PCICR  |= _BV(PCIE2); }
@@ -75,12 +89,13 @@ ISR(PCINT2_vect)
 ////////////////////////////////////////////////////////////////
 void send_byte(uint8_t sector_byte)
 {
-    // inverted, very small MFM table for fast converting
+    /// inverted, very small MFM table for fast converting
     static uint8_t MFM_tab[8] = { 0x77,0x7D,0xDF,0xDD,0xF7,0xFD,0xDF,0xDD };
 
-    loop_until_bit_is_set(UCSR0A,UDRE0);
     uint8_t tmp = sector_byte >> 6; // get first MFM byte from table (first 4 bits)
     if((prev_byte & 1) && !(sector_byte & 0x80)) tmp |= 0x04; // check previous last bit and correct first clock bit of a new byte
+
+    loop_until_bit_is_set(UCSR0A,UDRE0);
     UDR0 = MFM_tab[tmp];
 
     loop_until_bit_is_set(UCSR0A,UDRE0);
@@ -89,10 +104,11 @@ void send_byte(uint8_t sector_byte)
     loop_until_bit_is_set(UCSR0A,UDRE0);    
     UDR0 = A1_mark ? 0x7F : MFM_tab[(sector_byte >> 2)& 0x07]; // get second MFM byte from table (first 4 bits)
 
+    prev_byte = sector_byte;
+
     loop_until_bit_is_set(UCSR0A,UDRE0);
     UDR0 = MFM_tab[sector_byte & 0x07]; // get second MFM byte from table (second 4 bits)
 
-    prev_byte = sector_byte;
 }
 
 /// Print 2 files on LCD and file pointer
@@ -170,12 +186,8 @@ int main()
     // Setup USART in MasterSPI mode 1000000bps
     UBRR0H = 0x00;
 
-#if (CRYSTAL_8MHZ == 1)
-    UBRR0L = 0x03; // 1000 kbps for 8MHz internal oscillator
-#else
     UBRR0L = 0x07; // 1000 kbps for 16MHz external oscillator
-#endif
-    UCSR0C = 0xC0;
+    
     UCSR0A = 0x00;
     UCSR0B = 0x00; // disabled
 
@@ -187,14 +199,15 @@ int main()
     PORTC |= _BV(ENC_A) | _BV(ENC_B) | _BV(BTN); // set pull-up
     
     DDRB &= ~_BV(INDEX); // SET INDEX HIGH
-    DDRD &= ~(_BV(WP) | _BV(TRK00)); // Set RD, WP,TRK00 as input // | _BV(READ_DATA)
+    DDRD &= ~(_BV(WP) | _BV(TRK00)); // Set WP,TRK00 as input
  
     // Init SPI for SD Card
-    SPI_DDR = _BV(SPI_MOSI) | _BV(SPI_SCK) | _BV(SPI_CS); //set output mode for MOSI, SCK ! move SS to GND
+    SPI_DDR = _BV(SPI_MOSI) | _BV(SPI_SCK) | _BV(SPI_CS); //set output mode for MOSI, SCK, CS(SS)
     SPCR = _BV(MSTR) | _BV(SPE);   // Master mode, SPI enable, clock rate f_osc/4, LSB first
     SPSR |= _BV(SPI2X);           // set double speed
 
     sei();   // ENABLE GLOBAL INTERRUPTS
+
     path = (char*)(sector_data + 32); // use as temporary buffer for path generation
     fat.buf = sector_data;
 
@@ -206,6 +219,7 @@ int main()
         /// MAIN LOOP USED FOR SELECT and INIT SD CARD and other
 
      MOUNT:
+        PCINT1_disable();
         ///>>>>>> print "NO CARD PRESENT" on LCD
         LCD_clear();
         LCD_print(F("NO CARD INSERTED"));
@@ -350,9 +364,9 @@ DIRECTORY_LIST:
         btn_cnt = 0;
         while(!(PINC & _BV(BTN)))
         {
-          btn_cnt++;
-          _delay_ms(100);
-          ; // wait button is released
+            // wait button is released
+            btn_cnt++;
+            _delay_ms(100);
         }
 
         pind = 1;
@@ -381,6 +395,7 @@ DIRECTORY_LIST:
                 pf_opendir(&dir,path);
             }
             memset(disp_files,0,sizeof(fnfo)*2);
+            PCINT1_disable();
             goto DIRECTORY_LIST;
         }
 
@@ -466,18 +481,30 @@ OPEN_FILE:
         while (1)
         { /// DRIVE SELECT LOOP
 
-            while ( PIND & (_BV(MOTOR_ON) | _BV(DRIVE_SEL)) )  // wait drive select && motor_on
+            while ( ( PIND & (_BV(MOTOR_ON) | _BV(DRIVE_SEL)) ) != 0 )  // wait drive select && motor_on
             {
-                if(!(PINC & _BV(BTN))) {
-                  while(!(PINC & _BV(BTN))); // wait button is released
-                  if(eeprom_file) {
-                    eeprom_write_byte((uint8_t*)4, 0);
-                    goto MOUNT;
-                  }
-                  goto FILE_LIST;
+                if(!(PINC & _BV(BTN)))
+                { // if button pressed                    
+                    while(!(PINC & _BV(BTN))); // wait button is released
+
+                    USART_disable(); // disable interrupt after sending track
+                    PCINT2_disable(); // DISABLE INDERRUPT (STEP pin)
+
+                    DDRB &= ~_BV(INDEX); // SET INDEX HIGH
+                    DDRD &= ~(_BV(WP) | _BV(TRK00)); // Set WP,TRK00 as input
+
+                    DESELECT();
+                    
+                    if(eeprom_file == 1)
+                    { // if filename from eeprom, reset eeprom data
+                        eeprom_write_byte((uint8_t*)4, 0);
+                        goto MOUNT;
+                    }
+                    goto FILE_LIST;
                 }
             }
 
+            
             /// DEVICE ENABLED ==========================================================================================================================
 
             if(cylinder == 0) DDRD |= _BV(TRK00);
@@ -583,7 +610,7 @@ OPEN_FILE:
                         send_byte(sector_byte);
                     }
 
-                    if(!sector) DDRB &= ~_BV(INDEX); // SET INDEX HIGH if sector = 0
+                    if(sector == 0) DDRB &= ~_BV(INDEX); // SET INDEX HIGH if sector = 0
 
                     if(cylinder_changed || (PIND & _BV(MOTOR_ON))) break; // if cylinder is changed or FDD is disabled
 
@@ -614,11 +641,16 @@ OPEN_FILE:
                 }
                 if(read_error) break;
 
-            } while( !(PIND & ( _BV(MOTOR_ON) | _BV(DRIVE_SEL) )) ); // READ DATA SEND LOOP END
+            } while(  (PIND & ( _BV(MOTOR_ON) | _BV(DRIVE_SEL) )) == 0 ); // READ DATA SEND LOOP END
             //-------------------------------------------------------------------------------------------
-            PCINT2_disable(); // DISABLE INDERRUPT (STEP pin)
             USART_disable(); // disable interrupt after sending track
+            PCINT2_disable(); // DISABLE INDERRUPT (STEP pin)
+    
+            DDRB &= ~_BV(INDEX); // SET INDEX HIGH
             DDRD &= ~(_BV(WP) | _BV(TRK00)); // Set WP,TRK00 as input
+
+            DESELECT();
+
             if(read_error) break;
 
             /// DEVICE DISABLED =========================================================================================================================
