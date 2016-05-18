@@ -294,13 +294,13 @@ DIRECTORY_LIST:
             }
         }
         
-        encoder_val = 0;
-        prev_pc = 0;
     FILE_LIST:
         LCD_clear();
         print_files(disp_index);
 
 #if (USE_ENCODER == 1)
+        encoder_val = 0;
+        prev_pc = 0;
         PCINT1_enable();
         while(PINC & _BV(BTN))
         {
@@ -373,7 +373,7 @@ DIRECTORY_LIST:
               }
               if( serial != card_read_serial() ) goto MOUNT;
               
-              if(! (PINC & _BV(ENC_A) )
+              if(! (PINC & _BV(ENC_A) ))
               { // button A pushed
                   if(f_index > 1)
                   {
@@ -397,10 +397,10 @@ DIRECTORY_LIST:
                       }
                   }
                   // wait button released
-                  while(! (PINC & _BV(ENC_A) ) ;
+                  while(! (PINC & _BV(ENC_A)) );
               }
 
-              if(! (PINC & _BV(ENC_B) )
+              if(! (PINC & _BV(ENC_B)) )
               { // button B pushed
                   if(f_index > 1)
                   {
@@ -423,7 +423,7 @@ DIRECTORY_LIST:
                       }
                   }
                   // wait button released
-                  while(! (PINC & _BV(ENC_B) ) ;                
+                  while(! (PINC & _BV(ENC_B)) );                
               }
         }
 #endif
