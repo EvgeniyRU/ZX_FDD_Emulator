@@ -5,6 +5,8 @@
 #include <util/atomic.h>
 #include <util/delay.h>
 
+#define USE_ENCODER 1       /// set to 0 to use momentary push buttons instead of encoder
+
 #define MAX_CYL 82          /// maximal cylinder supported by FDD. More cylinders - more memory used.
 #define MAX_DIR_LEVEL 10    /// maximal subfolders support 15 MAX. The higher level the more memory used
 

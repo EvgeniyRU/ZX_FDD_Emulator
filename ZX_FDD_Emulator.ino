@@ -38,6 +38,8 @@ void inline PCINT1_disable() { PCICR &= ~_BV(PCIE1); }
 void inline PCINT2_enable() { PCIFR  |= _BV(PCIE2); PCICR  |= _BV(PCIE2); }
 void inline PCINT2_disable() { PCICR &= ~_BV(PCIE2); }
 
+
+#if (USE_ENCODER == 1)
 ///
 /// ENCODER interrupt
 volatile int8_t encoder_val = 0; // this is important!
@@ -57,6 +59,7 @@ ISR(PCINT1_vect)
     }
     prev_pc = pc_val;
 }
+#endif
 
 ///
 /// STEP pin interrupt
@@ -297,6 +300,7 @@ DIRECTORY_LIST:
         LCD_clear();
         print_files(disp_index);
 
+#if (USE_ENCODER == 1)
         PCINT1_enable();
         while(PINC & _BV(BTN))
         {
@@ -360,6 +364,70 @@ DIRECTORY_LIST:
                 sei();
             }
         }
+#else
+        while(PINC & _BV(BTN))
+        {
+              while((PINC & _BV(ENC_A)) && (PINC & _BV(ENC_B)))
+              {
+                  if(!(PINC & _BV(BTN))) break;
+              }
+              if( serial != card_read_serial() ) goto MOUNT;
+              
+              if(! (PINC & _BV(ENC_A) )
+              { // button A pushed
+                  if(f_index > 1)
+                  {
+                      if(disp_index == 0)
+                      { // only move pointer
+                          if(first) first = 0; else if(readdir(3,0) == -1) goto MOUNT;
+                          disp_index=1;
+                          LCD_print_char(0,1,0);
+                          LCD_print_char(0,0,32);
+                      }
+                      else
+                      { // load next entry
+                          uint8_t res = readdir(1,0);
+                          if(res == 0)
+                          {
+                              first = 0;
+                              LCD_clear();
+                              print_files(disp_index);
+                          }
+                          else if(res == -1) goto MOUNT;
+                      }
+                  }
+                  // wait button released
+                  while(! (PINC & _BV(ENC_A) ) ;
+              }
+
+              if(! (PINC & _BV(ENC_B) )
+              { // button B pushed
+                  if(f_index > 1)
+                  {
+                      if(disp_index == 1)
+                      { // only move pointer
+                          if(readdir(2,1) == -1) goto MOUNT;
+                          disp_index=0;                        
+                          LCD_print_char(0,0,0);
+                          LCD_print_char(0,1,32);
+                      }
+                      else if(!first)
+                      { // load previous entry
+                          uint8_t res = readdir(0,1);
+                          if(res == 0)
+                          {
+                              LCD_clear();
+                              print_files(disp_index);
+                          }
+                          else if(res == -1) goto MOUNT;
+                      }
+                  }
+                  // wait button released
+                  while(! (PINC & _BV(ENC_B) ) ;                
+              }
+        }
+#endif
+
 
         btn_cnt = 0;
         while(!(PINC & _BV(BTN)))
@@ -486,12 +554,6 @@ OPEN_FILE:
                 if(!(PINC & _BV(BTN)))
                 { // if button pressed                    
                     while(!(PINC & _BV(BTN))); // wait button is released
-
-                    USART_disable(); // disable interrupt after sending track
-                    PCINT2_disable(); // DISABLE INDERRUPT (STEP pin)
-
-                    DDRB &= ~_BV(INDEX); // SET INDEX HIGH
-                    DDRD &= ~(_BV(WP) | _BV(TRK00)); // Set WP,TRK00 as input
 
                     DESELECT();
                     
