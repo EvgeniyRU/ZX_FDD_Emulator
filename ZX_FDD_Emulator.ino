@@ -1,6 +1,6 @@
 // ZX-Spectrum FDD Emulator
 //
-// It use TRD file from SD Card to emulate floppy disk. File is selected by encoder.
+// It use TRD file from SD Card to emulate floppy disk. File is selected by encoder or buttons (set in Config.h).
 // SD CARD: Supported only FAT32 file system, cards SDC/SDHC/MMC, all cluster sizes from 512 bytes to 64k
 // Read-only mode, write mode is not supported!
 //
@@ -151,7 +151,8 @@ int8_t readdir(uint8_t f_array_ind, uint8_t dire)
 
         if(pf_readdir(&dir, &fnfo, dire) != FR_OK) return -1;   // read directory entry
         
-        if(fnfo.fname[0] != 0 && ( (strcasestr(fnfo.fname,".trd") && (fnfo.fattrib & AM_DIR) == 0) || (fnfo.fattrib & AM_DIR) != 0) )
+        //if(fnfo.fname[0] != 0 && ( (  (strcasestr(fnfo.fname,".trd") || strcasestr(fnfo.fname,".scl") ) && (fnfo.fattrib & AM_DIR) == 0) || (fnfo.fattrib & AM_DIR) != 0) )
+        if(fnfo.fname[0] != 0 && ( (  strcasestr(fnfo.fname,".trd") && (fnfo.fattrib & AM_DIR) == 0) || (fnfo.fattrib & AM_DIR) != 0) )
         {
             if(dire == 1) if(memcmp(&disp_files[0],&disp_files[1],sizeof(fnfo)) == 0) return 0;
           
@@ -166,6 +167,8 @@ int8_t readdir(uint8_t f_array_ind, uint8_t dire)
 
 
 uint8_t sector_data[256]; // sector data
+//uint8_t SCL_buf[512]; // buffer for SCL files
+
 uint32_t clust_table[MAX_CYL], sector_table[32]; // Cluster table, Cluster table for sectors in cylinder
 uint8_t dir_level, first, pind, s_cylinder, side, sector_byte, sector, cnt, tmpc, disp_index, f_index, eeprom_file, btn_cnt;
 union { uint16_t val; struct { byte low; byte high; } bytes; } CRC_H, CRC_D;
@@ -195,7 +198,10 @@ int main()
     UCSR0B = 0x00; // disabled
 
     PCMSK2 |= _BV(PCINT20); // SET PCINT2 interrupt on PD4 (STEP pin)
+
+#if (USE_ENCODER == 1)
     PCMSK1 |= _BV(PCINT10) | _BV(PCINT11); // SET PCINT1 (PC2, PC3) Encoder
+#endif
 
     // INIT pins and ports
     PORTD |= _BV(STEP) | _BV(MOTOR_ON) | _BV(DRIVE_SEL) | _BV(DIR_SEL) | _BV(SIDE_SEL); // set pull-up
@@ -487,7 +493,11 @@ DIRECTORY_LIST:
         memcpy(path + pind, disp_files[disp_index].fname,strlen(disp_files[disp_index].fname));
         path[pind + strlen(disp_files[disp_index].fname)]=0;
 
-OPEN_FILE:
+OPEN_FILE:        
+
+//        uint8_t SCL = 0;
+
+//        if(path[strlen(path)] == 'L' || path[strlen(path)] == 'l') SCL = 1;
 
         if(pf_open(path) != FR_OK) { // if unable to open file, usually if SD card is removed
             if(eeprom_file == 1) {
@@ -583,7 +593,7 @@ OPEN_FILE:
             //-------------------------------------------------------------------------------------------                
 
                 for(volatile uint8_t sector = 0; sector < 16; sector++)
-                { // transmit each sector of the track
+                { // transmit each sector of the track                    
 
                     if( sector == 0 ) // initialize track data for next round
                     {
@@ -622,6 +632,9 @@ OPEN_FILE:
                     }
 
                     side = ((~SIDE_PIN) & _BV(SIDE_SEL)) >> SIDE_SEL;
+/////////////////////
+//                    if(SCL && cylinder == 0 && side == 0) ; //////////////////////
+/////////////////////
                     // read sector data from SD card
                     if(card_readp(sector_data,fat.database + (sector_table[side*16 + sector] - 2) * fat.csize + ((s_cylinder*2 + side)*8 + sector/2) % fat.csize,(sector%2)*256,256) != RES_OK) { read_error = 1; break; }
 
