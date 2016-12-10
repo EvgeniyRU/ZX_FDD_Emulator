@@ -10,7 +10,6 @@
 #include "Fat32Module.h"
 #include "LCDModule.h"
 
-
 /// EMULATOR START -------------------------------------------------------------------------------------------------
 
 uint8_t cylinder_changed, max_cylinder, cylinder, prev_byte, A1_mark = 0;
@@ -229,7 +228,6 @@ int main()
 
      MOUNT:
         PCINT1_disable();
-        ///>>>>>> print "NO CARD PRESENT" on LCD
         LCD_clear();
         LCD_print(F("NO CARD INSERTED"));
      NO_FILES:
@@ -238,7 +236,6 @@ int main()
         pf_mount(0);
         while(pf_mount(&fat) != FR_OK);
 
-        ///>>>>>> print "CARD INFO etc..."
         LCD_clear();
         LCD_print(F(" CARD MOUNT OK."));
 
@@ -645,10 +642,10 @@ OPEN_FILE:
                     CRC_H.val = (CRC_H.bytes.low << 8) ^ pgm_read_word_near(Crc16Table + (CRC_H.bytes.high ^ 1));
 
                     CRC_D.val = 0xE295;
-                    for(uint8_t i = 0; ; i++)
+                    for(uint8_t i = 0; ;)
                     {
                         CRC_D.val = (CRC_D.bytes.low << 8) ^ pgm_read_word_near(Crc16Table + (CRC_D.bytes.high ^ sector_data[i]));
-                        if(i==255) break;
+                        if(i++ == 255) break;
                     }
 
                     if(cylinder_changed || (PIND & _BV(MOTOR_ON))) break; // if cylinder is changed or FDD is disabled
@@ -690,10 +687,10 @@ OPEN_FILE:
                     if(cylinder_changed || (PIND & _BV(MOTOR_ON))) break; // if cylinder is changed or FDD is disabled
 
                     // Send sector data -----------------------------------------------------
-                    for(cnt = 0; ; cnt++)
+                    for(cnt = 0; ;)
                     {
                         send_byte(sector_data[cnt]);
-                        if(cnt == 255) break;
+                        if(cnt++ == 255) break;
                     }
 
                     // Send CRC

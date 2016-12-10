@@ -5,7 +5,7 @@
 #include <Arduino.h>
 
 // I2C Extender settings
-#define LCDEX_ADDR  0x4E  // Extender address, 0x27 for standard chinese module
+#define LCDEX_ADDR  0x4E  // Extender address, 0x27*2 for standard chinese module, you should multiply your address by 2!
 #define LCDEX_RS    0     // RS pin on extender
 #define LCDEX_RW    1     // RW pin on extender
 #define LCDEX_EN    2     // EN pin on extender
