@@ -169,7 +169,7 @@ uint8_t sector_data[256]; // sector data
 //uint8_t SCL_buf[512]; // buffer for SCL files
 
 uint32_t clust_table[MAX_CYL], sector_table[32]; // Cluster table, Cluster table for sectors in cylinder
-uint8_t dir_level, first, pind, s_cylinder, side, sector_byte, sector, cnt, tmpc, disp_index, f_index, eeprom_file, btn_cnt;
+uint8_t dir_level, first, pind, s_cylinder;
 union { uint16_t val; struct { byte low; byte high; } bytes; } CRC_H, CRC_D;
 char dirs[MAX_DIR_LEVEL][13];
 char *path;
@@ -221,6 +221,7 @@ int main()
 
     /// ---------------------------------------------------------------
     
+    uint8_t eeprom_file, side, sector_byte, tmpc, disp_index, f_index, btn_cnt;
 
     while(1)
     { // MAIN LOOP START
@@ -655,12 +656,12 @@ OPEN_FILE:
                     if(sector == 0)
                     { // Send TRACK GAP4A ----------------------------------------------------
                         USART_enable();
-                        for(cnt = 0; cnt < 10; cnt++) send_byte(0x4E);
+                        for(uint8_t cnt = 0; cnt < 10; cnt++) send_byte(0x4E);
                         DDRB |= _BV(INDEX); // SET INDEX LOW
                     }
 
                     // Send sector Address Field + start data field --------------------------
-                    for(cnt = 0; cnt < 60; cnt++)
+                    for(uint8_t cnt = 0; cnt < 60; cnt++)
                     {
                         switch(cnt)
                         {
@@ -687,7 +688,7 @@ OPEN_FILE:
                     if(cylinder_changed || (PIND & _BV(MOTOR_ON))) break; // if cylinder is changed or FDD is disabled
 
                     // Send sector data -----------------------------------------------------
-                    for(cnt = 0; ;)
+                    for(uint8_t cnt = 0; ;)
                     {
                         send_byte(sector_data[cnt]);
                         if(cnt++ == 255) break;
@@ -698,7 +699,7 @@ OPEN_FILE:
                     send_byte(CRC_D.bytes.low);
 
                     // Send sector GAP ------------------------------------------------------
-                    for(cnt = 0; cnt < 54; cnt++) send_byte(0x4E);
+                    for(uint8_t cnt = 0; cnt < 54; cnt++) send_byte(0x4E);
 
                     if(cylinder_changed || (PIND & _BV(MOTOR_ON))) break; // if cylinder is changed or FDD is disabled
 
