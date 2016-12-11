@@ -49,12 +49,12 @@ ISR(PCINT1_vect)
     uint8_t pc_val = PINC & (_BV(ENC_A) | _BV(ENC_B)), A=0, B=0;
     if(prev_pc == (_BV(ENC_A) | _BV(ENC_B)) && pc_val != 0)
     {
-        for(uint8_t i = 0; i < 200; i++)
+        for(uint8_t i = 0; i < 50; i++)
         {
             if(PINC & _BV(ENC_A)) A++;
             if(PINC & _BV(ENC_B)) B++;
         }
-        if(A > 170 && B < 30) encoder_val++; else if(B > 170 && A < 30) encoder_val--;
+        if(A > 48 && B < 2) encoder_val++; else if(B > 48 && A < 2) encoder_val--;
     }
     prev_pc = pc_val;
 }
@@ -169,7 +169,6 @@ uint8_t sector_data[256]; // sector data
 //uint8_t SCL_buf[512]; // buffer for SCL files
 
 uint32_t clust_table[MAX_CYL], sector_table[32]; // Cluster table, Cluster table for sectors in cylinder
-uint8_t dir_level, first, pind, s_cylinder;
 union { uint16_t val; struct { byte low; byte high; } bytes; } CRC_H, CRC_D;
 char dirs[MAX_DIR_LEVEL][13];
 char *path;
@@ -221,7 +220,7 @@ int main()
 
     /// ---------------------------------------------------------------
     
-    uint8_t eeprom_file, side, sector_byte, tmpc, disp_index, f_index, btn_cnt;
+    uint8_t eeprom_file, side, sector_byte, disp_index, f_index, btn_cnt, dir_level, first, pind, s_cylinder;
 
     while(1)
     { // MAIN LOOP START
@@ -585,7 +584,7 @@ OPEN_FILE:
             //check SD Card is present and same card as was mounted
             //if(serial != card_read_serial()) break; // exit from loop if card is not present or another card.
 
-            uint8_t read_error = 0;
+            uint8_t read_error = 0, tmpc;
 
             do { // READ DATA LOOP (send data from FDD to FDD controller)  
             //-------------------------------------------------------------------------------------------                
