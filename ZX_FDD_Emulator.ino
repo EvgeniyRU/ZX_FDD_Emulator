@@ -20,18 +20,18 @@ uint8_t cylinder_changed, max_cylinder, cylinder, prev_byte, A1_mark = 0;
 ///////////////////////////////////////////
 void inline USART_enable()
 {
-  cli();
-  /* Set MSPI mode of operation and SPI data mode 0. */
-  UCSR0C = _BV(UMSEL01) | _BV(UMSEL00);    
-  UCSR0B |= _BV(TXEN0);
-  sei();
+    cli();
+    /* Set MSPI mode of operation and SPI data mode 0. */
+    UCSR0C = _BV(UMSEL01) | _BV(UMSEL00);    
+    UCSR0B |= _BV(TXEN0);
+    sei();
 }
 void inline USART_disable()
 {
-  cli();
-  UCSR0C &= ~(_BV(UMSEL01) | _BV(UMSEL00));
-  UCSR0B &= ~_BV(TXEN0);
-  sei();
+    cli();
+    UCSR0C &= ~(_BV(UMSEL01) | _BV(UMSEL00));
+    UCSR0B &= ~_BV(TXEN0);
+    sei();
 }
 void inline PCINT1_enable() { PCIFR  |= _BV(PCIE1); PCICR  |= _BV(PCIE1); }
 void inline PCINT1_disable() { PCICR &= ~_BV(PCIE1); }
@@ -242,7 +242,7 @@ int main()
 
         LCD_clear();
         LCD_print(F(" CARD MOUNT OK."));
-
+        
         uint32_t serial = card_read_serial();
 
 
@@ -268,6 +268,7 @@ int main()
         pf_opendir(&dir,"/");
 
         dir_level = 0;
+
         
 DIRECTORY_LIST:
         LCD_clear();
@@ -385,6 +386,7 @@ DIRECTORY_LIST:
               
               if(! (PINC & _BV(ENC_A) ))
               { // button A pushed
+                PRESS_A_AGAIN:
                   if(f_index > 1)
                   {
                       if(disp_index == 0)
@@ -407,11 +409,17 @@ DIRECTORY_LIST:
                       }
                   }
                   // wait button released
-                  while(! (PINC & _BV(ENC_A)) );
+                  uint8_t wait = 0;
+                  while(! (PINC & _BV(ENC_A)) )
+                  {
+                    _delay_ms(100);
+                    if(++wait == 3) goto PRESS_A_AGAIN;
+                  }
               }
 
               if(! (PINC & _BV(ENC_B)) )
               { // button B pushed
+                PRESS_B_AGAIN:
                   if(f_index > 1)
                   {
                       if(disp_index == 1)
@@ -433,7 +441,12 @@ DIRECTORY_LIST:
                       }
                   }
                   // wait button released
-                  while(! (PINC & _BV(ENC_B)) );                
+                  uint8_t wait = 0;
+                  while(! (PINC & _BV(ENC_B)) )
+                  {
+                    _delay_ms(100);
+                    if(++wait == 3) goto PRESS_B_AGAIN;
+                  }
               }
         }
 #endif
