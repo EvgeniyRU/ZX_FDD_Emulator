@@ -461,6 +461,8 @@ DIRECTORY_LIST:
             _delay_ms(100);
         }
 
+        _delay_ms(300);
+        
         pind = 1;
         path[0] = '/';
 
@@ -612,9 +614,7 @@ OPEN_FILE:
             //check SD Card is present and same card as was mounted
             //if(serial != card_read_serial()) break; // exit from loop if card is not present or another card.
 
-            uint8_t read_error = 0;
-
-            LCD_light_on();
+            uint8_t read_error = 0;            
 
             do { // READ DATA LOOP (send data from FDD to FDD controller)
             //=================================================================================================================================]
@@ -690,6 +690,8 @@ OPEN_FILE:
                     // ----------------------------------------------------------------------
 
                     if(cylinder_changed || (PIND & _BV(MOTOR_ON))) break; // Stop sending track if cylinder is changed or FDD is disabled
+
+                    if(!LCD_check_light()) LCD_light_on();
 
                     // NOW WE'RE READY TO SEND SECTOR ===============================================================================>
 

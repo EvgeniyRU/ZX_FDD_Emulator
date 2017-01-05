@@ -180,6 +180,10 @@ void LCD_light_off()
     twi_send_byte(0);
 }
 
+uint8_t LCD_check_light()
+{
+    return light_val;
+}
 ////////////////////////////////////////////////////////////////////////////////
 
 /// set cursor position
