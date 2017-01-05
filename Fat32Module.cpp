@@ -403,6 +403,7 @@ FRESULT pf_mount (
   ///////////////////////////////////////////////////////////
   bsect = 0;
   fmt = check_fs(buf, bsect);         // Check sector 0 as an SFD format
+  
   if( fmt == 1 ) {            // Not an FAT boot record, it may be FDISK format
     // Check the first partition in partition table
     if (card_readp(buf, bsect, MBR_Table, 16)) {    // 1st partition entry
@@ -415,6 +416,7 @@ FRESULT pf_mount (
       else fmt = 1; // not fat32
     }
   }
+  
   if( fmt == 3 ) return FR_DISK_ERR;
   if( fmt > 0 ) return FR_NO_FILESYSTEM;        // No valid FAT32 patition is found
   ///////////////////////////////////////////////////////////

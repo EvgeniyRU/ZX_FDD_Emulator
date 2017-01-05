@@ -78,7 +78,6 @@ void lcd_command(unsigned char cmd)
     lcd_data &= ~_BV(LCDEX_RS);
     strobe_en(lcd_data);
     twi_send_byte(lcd_data);
- 
     if(cmd & 0b11111100) _delay_us(100); else _delay_ms(2);
 }
 

@@ -123,6 +123,7 @@ CRESULT card_readp (
 {
   CRESULT res;
   uint8_t *p, rc;
+  uint16_t bc;
 
   // commented as it is too much useless code
   //if (!cnt || ofs + cnt > 512) return RES_PARERR; // wrong parameters
@@ -134,7 +135,9 @@ CRESULT card_readp (
   if (send_cmd(CMD17, lba, 0) == 0)
   { // READ_SINGLE_BLOCK
 
-      while( (rc = spiRead() ) == 0xFF ); // wait for CARD is ready to transmit block of data
+      bc = 40000;
+      do { rc = spiRead(); } while (rc == 0xFF && --bc); // wait for CARD is ready to transmit block of data
+
 
       if (rc == 0xFE)
       { // receive data block 512 bytes + CRC
@@ -143,18 +146,15 @@ CRESULT card_readp (
           {
               SPDR = 0xFF;
               loop_until_bit_is_set(SPSR, SPIF);
-              if( i >= ofs )
+              if( i >= ofs && cnt > 0)
               {
                   *p++ = SPDR;
-                  if(!--cnt)
-                  {
-                      send_cmd(CMD12,0,0); // stop transmission from SD card if partial sector read;
-                      DESELECT();
-                      SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF);
-                      return cnt ? RES_ERROR : RES_OK;
-                  }
+                  cnt--;
               }
           }
+          DESELECT();
+          SPDR = 0xFF; loop_until_bit_is_set(SPSR, SPIF);
+          return cnt ? RES_ERROR : RES_OK;
       }
   }
   return RES_ERROR;
