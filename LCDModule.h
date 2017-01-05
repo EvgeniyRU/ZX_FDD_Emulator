@@ -119,6 +119,7 @@ void LCD_print(uint8_t x, uint8_t y, uint8_t num);
 void LCD_print_char(uint8_t char_num);
 void LCD_print_char(uint8_t x, uint8_t y, uint8_t char_num);
 
-
+void LCD_light_on();
+void LCD_light_off();
 
 #endif /* LCD_MODULE_H */

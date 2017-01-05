@@ -5,12 +5,13 @@
 
 /// Custom characters definition -------------------------------------------------
 
-#define SYMB_COUNT 3
+#define SYMB_COUNT 2
+
+uint8_t light_val = LCDEX_LIGHT;
 
 const uint8_t symbols[] PROGMEM = {
   0b10000, 0b11000, 0b11100, 0b11110, 0b11100, 0b11000, 0b10000, 0b00000,//Play
   0b00000, 0b00111, 0b11001, 0b10001, 0b10001, 0b11111, 0b00000, 0b00000,//Folder
-  0b00000, 0b00000, 0b00110, 0b01111, 0b01111, 0b00110, 0b00000, 0b00000,//Circle
 };
 
 
@@ -48,7 +49,7 @@ void twi_send_byte(unsigned char data)
 {
     twi_start(LCDEX_ADDR);
 
-    TWDR = data | _BV(LCDEX_LIGHT); //temporary
+    TWDR = data | _BV(LCDEX_LIGHT & light_val); //temporary
     TWCR = (1<<TWINT) | (1<<TWEN);
 
     while(!(TWCR & (1<<TWINT)));
@@ -161,6 +162,22 @@ void LCD_clear()
 void LCD_home()
 {
     lcd_command( LCD_CURSOR_HOME );
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+void LCD_light_on()
+{
+    light_val = LCDEX_LIGHT;
+    twi_send_byte(0);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+
+void LCD_light_off()
+{
+    light_val = 0;
+    twi_send_byte(0);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -575,8 +575,12 @@ OPEN_FILE:
         s_cylinder = 255;
         cylinder_changed = 0;
 
+        _delay_ms(1500);
+
         while (1)
         { /// DRIVE SELECT LOOP
+
+            LCD_light_off();
 
             while ( ( PIND & (_BV(MOTOR_ON) | _BV(DRIVE_SEL)) ) != 0 )  // wait drive select && motor_on
             {
@@ -585,6 +589,8 @@ OPEN_FILE:
                     while(!(PINC & _BV(BTN))); // wait button is released
 
                     DESELECT();
+                    
+                    LCD_light_on();
                     
                     if(eeprom_file == 1)
                     { // if filename from eeprom, reset eeprom data
@@ -608,7 +614,7 @@ OPEN_FILE:
 
             uint8_t read_error = 0;
 
-            LCD_print_char(15,0,2); // device busy symbol
+            LCD_light_on();
 
             do { // READ DATA LOOP (send data from FDD to FDD controller)
             //=================================================================================================================================]
@@ -758,7 +764,7 @@ OPEN_FILE:
             USART_disable(); // DISABLE USART INDERRUPT after sending track
             PCINT2_disable(); // DISABLE PCINT INDERRUPT (STEP pin)
 
-            LCD_print_char(15,0,32); // clear device busy symbol
+            LCD_light_off();
 
             DDRB &= ~_BV(INDEX); // SET INDEX HIGH
             DDRD &= ~(_BV(WP) | _BV(TRK00)); // Set WP,TRK00 as input
