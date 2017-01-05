@@ -608,7 +608,9 @@ OPEN_FILE:
 
             uint8_t read_error = 0;
 
-            do { // READ DATA LOOP (send data from FDD to FDD controller)  
+            LCD_print_char(15,0,2); // device busy symbol
+
+            do { // READ DATA LOOP (send data from FDD to FDD controller)
             //=================================================================================================================================]
                 uint8_t tmpc;
 
@@ -755,7 +757,9 @@ OPEN_FILE:
             //=================================================================================================================================]
             USART_disable(); // DISABLE USART INDERRUPT after sending track
             PCINT2_disable(); // DISABLE PCINT INDERRUPT (STEP pin)
-    
+
+            LCD_print_char(15,0,32); // clear device busy symbol
+
             DDRB &= ~_BV(INDEX); // SET INDEX HIGH
             DDRD &= ~(_BV(WP) | _BV(TRK00)); // Set WP,TRK00 as input
 
