@@ -74,13 +74,13 @@ void lcd_command(unsigned char cmd)
     lcd_data &= ~_BV(LCDEX_RS);
     strobe_en(lcd_data);
     twi_send_byte(lcd_data);
-    _delay_us(100);
+    _delay_us(37);
  
     lcd_data = ((cmd & 0x0F)<<4);
     lcd_data &= ~_BV(LCDEX_RS);
     strobe_en(lcd_data);
     twi_send_byte(lcd_data);
-    if(cmd & 0b11111100) _delay_us(100); else _delay_ms(2);
+    if(cmd & 0b11111100) _delay_us(37); else _delay_ms(2);
 }
 
 void lcd_putch(unsigned char chr)
@@ -88,7 +88,7 @@ void lcd_putch(unsigned char chr)
     uint8_t lcd_data = (chr & 0xF0);
     lcd_data |= _BV(LCDEX_RS);
     strobe_en(lcd_data);
-    _delay_us(100);
+    _delay_us(37);
  
     lcd_data = ((chr & 0x0F)<<4);
     lcd_data |= _BV(LCDEX_RS);

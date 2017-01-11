@@ -99,18 +99,18 @@ void send_byte(uint8_t sector_byte)
     uint8_t tmp = sector_byte >> 6; // get first MFM byte from table (first 4 bits)
     if((prev_byte & 1) && !(sector_byte & 0x80)) tmp |= 0x04; // check previous last bit and correct first clock bit of a new byte
 
-    loop_until_bit_is_set(UCSR0A,UDRE0);
+    loop_until_bit_is_set(UCSR0A,UDRE0); // wait USART buffer is ready for the next byte
     UDR0 = MFM_tab[tmp];
 
-    loop_until_bit_is_set(UCSR0A,UDRE0);
+    loop_until_bit_is_set(UCSR0A,UDRE0); // wait USART buffer is ready for the next byte
     UDR0 = MFM_tab[(sector_byte >> 4) & 0x07]; // get first MFM byte from table (second 4 bits)
 
-    loop_until_bit_is_set(UCSR0A,UDRE0);    
+    loop_until_bit_is_set(UCSR0A,UDRE0); // wait USART buffer is ready for the next byte
     UDR0 = A1_mark ? 0x7F : MFM_tab[(sector_byte >> 2)& 0x07]; // get second MFM byte from table (first 4 bits)
 
     prev_byte = sector_byte;
 
-    loop_until_bit_is_set(UCSR0A,UDRE0);
+    loop_until_bit_is_set(UCSR0A,UDRE0); // wait USART buffer is ready for the next byte
     UDR0 = MFM_tab[sector_byte & 0x07]; // get second MFM byte from table (second 4 bits)
 
 }
@@ -123,14 +123,11 @@ DIR dir, first_dir;
 void print_files(uint8_t index)
 {
     LCD_print_char(0,index,0);
-    if((disp_files[0].fattrib & AM_DIR) != 0)
-        LCD_print_char(1,0,1);
-    
-    if((disp_files[1].fattrib & AM_DIR) != 0)
-        LCD_print_char(1,1,1);
-    
-    LCD_print(2,0,disp_files[0].fname);
-    LCD_print(2,1,disp_files[1].fname);
+    for(uint8_t i = 0; i < 2; i++)
+    {
+        if((disp_files[i].fattrib & AM_DIR) != 0) LCD_print_char(1,i,1); // display folder icon
+        LCD_print(2,i,disp_files[i].fname); // display file name
+    }
 }
 
 ///////
@@ -224,7 +221,7 @@ int main()
 
     /// ---------------------------------------------------------------
     
-    uint8_t eeprom_file, side, sector_byte, disp_index, f_index, btn_cnt, dir_level, first, pind, s_cylinder;
+    uint8_t sector_byte, disp_index, f_index, btn_cnt, dir_level, first, pind;
 
     while(1)
     { // MAIN LOOP START
@@ -235,7 +232,7 @@ int main()
         LCD_clear();
         LCD_print(F("NO CARD INSERTED"));
      NO_FILES:
-        eeprom_file = 0;
+        uint8_t eeprom_file = 0;
         memset(disp_files,0,sizeof(fnfo)*2);
         pf_mount(0);
         while(pf_mount(&fat) != FR_OK);
@@ -272,8 +269,7 @@ int main()
         
 DIRECTORY_LIST:
         LCD_clear();
-        disp_index = 0;
-        f_index = 0;
+        disp_index = 0, f_index = 0;
 
         first = 1;
 
@@ -307,9 +303,8 @@ DIRECTORY_LIST:
         print_files(disp_index);
 
 
-
-
 #if (USE_ENCODER == 1)
+    // Encoder processing -----------------------------------------
         encoder_val = 0;
         prev_pc = 0;
         PCINT1_enable();
@@ -376,6 +371,7 @@ DIRECTORY_LIST:
             }
         }
 #else
+    // Buttons processing -----------------------------------------
         while(PINC & _BV(BTN))
         {
               while((PINC & _BV(ENC_A)) && (PINC & _BV(ENC_B)))
@@ -450,8 +446,6 @@ DIRECTORY_LIST:
               }
         }
 #endif
-
-
 
         btn_cnt = 0;
         while(!(PINC & _BV(BTN)))
@@ -549,7 +543,7 @@ OPEN_FILE:
         LCD_print(0,1, F("CYL: 00  HEAD: 0") );
 
         max_cylinder = fat.fsize / 8192 + ((fat.fsize % 8192) ? 1 : 0); // calculate maximal cylinder
-        if( max_cylinder > MAX_CYL ) max_cylinder = MAX_CYL;
+        if( max_cylinder > MAX_CYL ) max_cylinder = MAX_CYL; // if TRD image size too big set limit to MAX_CYL
 
         /// FAST create cluster table for cylinders ---------------------------------------------------------------------------------------
         uint32_t cur_fat = fat.org_clust, cur_fat_sector = cur_fat / 64;
@@ -573,8 +567,8 @@ OPEN_FILE:
 
 
         /// Emulator loop --------------
+        uint8_t s_cylinder = 255;
         cylinder = 0;
-        s_cylinder = 255;
         cylinder_changed = 0;
 
         _delay_ms(1500);
@@ -638,13 +632,13 @@ OPEN_FILE:
                           
                             s_cylinder = cylinder;
 
-                            // FAST create cluster table for all 32 cylinder sectors (sector_table) ----------
+                            // FAST create cluster table for 32 cylinder sectors (sector_table) --------------
                             cur_fat = clust_table[s_cylinder];
                             cur_fat_sector = cur_fat / 64;
                             sector_table[0] = sector_table[1] = cur_fat; // sector 1 offset on SD card
                             // process cluster chain
                             if(card_readp(sector_data, fat.fatbase + cur_fat_sector/2, (cur_fat_sector%2)*256, 256) != RES_OK) { read_error = 1; break; }
-                            for(uint8_t i = 1; i < 16; i++) // 2 - 32 sectors
+                            for(uint8_t i = 1; i < 16; i++) // TRD sector 256 bytes, SD card sector 512 bytes, so 32 TRD sectors = 16 sectors on SD
                             {
                                 if((i % fat.csize == 0))
                                 { // if cluster is changed
@@ -655,13 +649,13 @@ OPEN_FILE:
                                     }
                                     cur_fat = (uint32_t)(*(uint32_t*)(sector_data + (uint8_t)((uint8_t)cur_fat << 2)));
                                 }
-                                sector_table[i*2] = sector_table[i*2+1] = cur_fat;
+                                sector_table[i*2] = sector_table[i*2+1] = cur_fat;  // 2 TRD sectors in same cluster
                             }
                             // --------------------------------------------------------------------------------
                         }
                     }
 
-                    side = ((~SIDE_PIN) & _BV(SIDE_SEL)) >> SIDE_SEL; // side detect
+                    uint8_t side = ((~SIDE_PIN) & _BV(SIDE_SEL)) >> SIDE_SEL; // side detect
 
 /////////////////////
 //                    if(SCL && cylinder == 0 && side == 0) ; //////////////////////
@@ -691,16 +685,22 @@ OPEN_FILE:
 
                     if(cylinder_changed || (PIND & _BV(MOTOR_ON))) break; // Stop sending track if cylinder is changed or FDD is disabled
 
-                    if(!LCD_check_light()) LCD_light_on();
+                    if(!LCD_check_light()) LCD_light_on(); // Enable LCD Light if FDD is active
 
                     // NOW WE'RE READY TO SEND SECTOR ===============================================================================>
 
-                    if(sector == 0)
-                    { // Send TRACK GAP4A ----------------------------------------------------
+                    if(!sector)
+                    { // if sector = 0
+                        // print CYLINDER, HEAD INFO or track number on LCD
+                        LCD_print(5,1,cylinder / 10);
+                        LCD_print(cylinder % 10);
+                        LCD_print(15,1,side);
+                        
+                        // Send TRACK GAP4A --------------------------------------------------
                         USART_enable();
                         for(uint8_t cnt = 0; cnt < 10; cnt++) send_byte(0x4E);
                         DDRB |= _BV(INDEX); // SET INDEX LOW if sector = 0 (Start Index pulse at start of the track)
-                      // ---------------------------------------------------------------------
+                        // -------------------------------------------------------------------
                     }
 
                     // Send sector Address Field + start data field --------------------------
@@ -727,9 +727,9 @@ OPEN_FILE:
                     }
                     // ----------------------------------------------------------------------
 
-                    if(sector == 0) DDRB &= ~_BV(INDEX); // SET INDEX HIGH if sector = 0 (End Index pulse at start of the track)
+                    if(!sector) DDRB &= ~_BV(INDEX); // SET INDEX HIGH if sector = 0 (End Index pulse at start of the track)
 
-                    if(cylinder_changed || (PIND & _BV(MOTOR_ON))) break; // Stop sending track if cylinder is changed or FDD is disabled
+                    if(cylinder_changed || (PIND & _BV(MOTOR_ON))) break; // Stop sending track if cylinder is changed or FDD is not active
 
                     // Send sector data (256 bytes) -----------------------------------------
                     for(uint8_t cnt = 0; ;)
@@ -750,15 +750,9 @@ OPEN_FILE:
 
                     if(cylinder_changed || (PIND & _BV(MOTOR_ON))) break; // Stop sending track if cylinder is changed or FDD is disabled
 
-                    if(sector == 0)
-                    {
-                         // print "CYLINDER, HEAD INFO" or track number on LCD                         
-                         LCD_print(5,1,cylinder / 10);
-                         LCD_print(cylinder % 10);
-                         LCD_print(15,1,side);
-                    }
                     // END SEND SECTOR ==============================================================================================>
                 }
+                
                 if(read_error) break;
 
             } while(  (PIND & ( _BV(MOTOR_ON) | _BV(DRIVE_SEL) )) == 0 ); // READ DATA SEND LOOP END
@@ -766,7 +760,7 @@ OPEN_FILE:
             USART_disable(); // DISABLE USART INDERRUPT after sending track
             PCINT2_disable(); // DISABLE PCINT INDERRUPT (STEP pin)
 
-            LCD_light_off();
+            LCD_light_off(); // Disable LCD Light if FDD is not active
 
             DDRB &= ~_BV(INDEX); // SET INDEX HIGH
             DDRD &= ~(_BV(WP) | _BV(TRK00)); // Set WP,TRK00 as input
