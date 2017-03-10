@@ -7,7 +7,7 @@ RUSSIAN
 
 Эмулятор дисковода для ZX-Spectrum, использует образы TRD с SD карты для эмуляции дискет.
 
-
+PCB example https://github.com/andykarpov/zx-fdd-emulator-pcb
 
 <strong>DONATE:</strong><br>
 Yandex: 41001139627896<br>
