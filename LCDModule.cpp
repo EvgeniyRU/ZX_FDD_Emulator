@@ -68,15 +68,25 @@ void strobe_en(uint8_t data)
     twi_send_byte(data);
 }
 
+unsigned char data_remap(unsigned char data)
+{
+    unsigned char data_out = 0;
+    if(data & 16) data_out |= _BV(LCDEX_D4);
+    if(data & 32) data_out |= _BV(LCDEX_D5);
+    if(data & 64) data_out |= _BV(LCDEX_D6);
+    if(data & 128) data_out |= _BV(LCDEX_D7);
+    return data_out;
+}
+
 void lcd_command(unsigned char cmd)
-{  
-    uint8_t lcd_data = (cmd & 0xF0);
+{
+    uint8_t lcd_data = data_remap(cmd & 0xF0);
     lcd_data &= ~_BV(LCDEX_RS);
     strobe_en(lcd_data);
     twi_send_byte(lcd_data);
     _delay_us(37);
  
-    lcd_data = ((cmd & 0x0F)<<4);
+    lcd_data = data_remap((cmd & 0x0F)<<4);
     lcd_data &= ~_BV(LCDEX_RS);
     strobe_en(lcd_data);
     twi_send_byte(lcd_data);
@@ -85,12 +95,12 @@ void lcd_command(unsigned char cmd)
 
 void lcd_putch(unsigned char chr)
 {
-    uint8_t lcd_data = (chr & 0xF0);
+    uint8_t lcd_data = data_remap(chr & 0xF0);
     lcd_data |= _BV(LCDEX_RS);
     strobe_en(lcd_data);
     _delay_us(37);
  
-    lcd_data = ((chr & 0x0F)<<4);
+    lcd_data = data_remap((chr & 0x0F)<<4);
     lcd_data |= _BV(LCDEX_RS);
     strobe_en(lcd_data);
     twi_send_byte(lcd_data);
@@ -122,7 +132,7 @@ void LCD_init()
     _delay_ms(40);
 
     // 8bit mode
-    lcd_data = 0b00110000;
+    lcd_data = data_remap(0b00110000);
     twi_send_byte(lcd_data);
 
     strobe_en(lcd_data);  
@@ -133,7 +143,7 @@ void LCD_init()
     _delay_us(100);
 
     // set 4bit mode
-    lcd_data = 0b00100000;
+    lcd_data = data_remap(0b00100000);
     twi_send_byte(lcd_data);
     strobe_en(lcd_data);
     twi_send_byte(lcd_data);

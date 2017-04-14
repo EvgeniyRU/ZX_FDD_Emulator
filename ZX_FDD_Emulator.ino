@@ -330,7 +330,7 @@ DIRECTORY_LIST:
                     }
                     else
                     { // load next entry
-                        uint8_t res = readdir(1,0);
+                        int8_t res = readdir(1,0);
                         if(res == 0)
                         {
                             first = 0;
@@ -357,7 +357,7 @@ DIRECTORY_LIST:
                     }
                     else if(!first)
                     { // load previous entry
-                        uint8_t res = readdir(0,1);
+                        int8_t res = readdir(0,1);
                         if(res == 0)
                         {
                             LCD_clear();
@@ -394,7 +394,7 @@ DIRECTORY_LIST:
                       }
                       else
                       { // load next entry
-                          uint8_t res = readdir(1,0);
+                          int8_t res = readdir(1,0);
                           if(res == 0)
                           {
                               first = 0;
@@ -427,7 +427,7 @@ DIRECTORY_LIST:
                       }
                       else if(!first)
                       { // load previous entry
-                          uint8_t res = readdir(0,1);
+                          int8_t res = readdir(0,1);
                           if(res == 0)
                           {
                               LCD_clear();
