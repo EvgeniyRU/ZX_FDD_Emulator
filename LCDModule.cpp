@@ -80,13 +80,13 @@ unsigned char data_remap(unsigned char data)
 
 void lcd_command(unsigned char cmd)
 {
-    uint8_t lcd_data = data_remap(cmd & 0xF0);
+    uint8_t lcd_data = data_remap(cmd);
     lcd_data &= ~_BV(LCDEX_RS);
     strobe_en(lcd_data);
     twi_send_byte(lcd_data);
     _delay_us(37);
  
-    lcd_data = data_remap((cmd & 0x0F)<<4);
+    lcd_data = data_remap(cmd<<4);
     lcd_data &= ~_BV(LCDEX_RS);
     strobe_en(lcd_data);
     twi_send_byte(lcd_data);
@@ -95,12 +95,12 @@ void lcd_command(unsigned char cmd)
 
 void lcd_putch(unsigned char chr)
 {
-    uint8_t lcd_data = data_remap(chr & 0xF0);
+    uint8_t lcd_data = data_remap(chr);
     lcd_data |= _BV(LCDEX_RS);
     strobe_en(lcd_data);
     _delay_us(37);
  
-    lcd_data = data_remap((chr & 0x0F)<<4);
+    lcd_data = data_remap(chr<<4);
     lcd_data |= _BV(LCDEX_RS);
     strobe_en(lcd_data);
     twi_send_byte(lcd_data);
