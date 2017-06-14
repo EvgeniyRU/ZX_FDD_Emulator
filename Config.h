@@ -4,6 +4,7 @@
 #include <avr/pgmspace.h>
 #include <util/atomic.h>
 #include <util/delay.h>
+#include <avr/eeprom.h>
 
 #define USE_ENCODER 1       /// set to 0 to use momentary push buttons instead of encoder
 
