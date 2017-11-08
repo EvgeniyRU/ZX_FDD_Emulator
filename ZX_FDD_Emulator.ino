@@ -133,7 +133,7 @@ void print_files(uint8_t index)
 ///////
 /// f_array_ind - LCD display line number
 /// dire - direction 0 - forward, 1 - backward
-/// READ DIRECTORY ENTRY (1 file name) and prut it to array (disp_files) for print on LCD
+/// READ DIRECTORY ENTRY (1 file name) and put it to array (disp_files) for print on LCD
 /////////////////////////////////////////////////////
 int8_t readdir(uint8_t f_array_ind, uint8_t dire)
 {
@@ -154,7 +154,8 @@ int8_t readdir(uint8_t f_array_ind, uint8_t dire)
         //if(fnfo.fname[0] != 0 && ( (  (strcasestr(fnfo.fname,".trd") || strcasestr(fnfo.fname,".scl") ) && (fnfo.fattrib & AM_DIR) == 0) || (fnfo.fattrib & AM_DIR) != 0) )
         if(fnfo.fname[0] != 0 && ( (  strcasestr(fnfo.fname,".trd") && (fnfo.fattrib & AM_DIR) == 0) || (fnfo.fattrib & AM_DIR) != 0) )
         {
-            if(dire == 1) if(memcmp(&disp_files[0],&disp_files[1],sizeof(fnfo)) == 0) return 0;
+            if( dire && !memcmp(&disp_files[0],&disp_files[1],sizeof(fnfo)-13) && !strncmp(disp_files[0].fname,disp_files[1].fname,12) )
+		return 0;
           
             if(f_array_ind == 0) memcpy(&disp_files[1],&disp_files[0],sizeof(fnfo));
             if(f_array_ind == 1) memcpy(&disp_files[0],&disp_files[1],sizeof(fnfo));
@@ -242,22 +243,21 @@ int main()
         
         uint32_t serial = card_read_serial();
 
-
-        DESELECT();
-        eeprom_read_block((void*)path,(const void*)4,224);
+        DESELECT(); // set SD card inactive
+        eeprom_read_block((void*)path,(const void*)4,224); // read saved block with trd filename from eeprom
         
         if(path[0] != 0)
         {
             eeprom_file = 1;
             uint32_t serial2;
-            eeprom_read_block((void*)&serial2,(const void*)0,4);
-            if(serial2 != serial)
+            eeprom_read_block((void*)&serial2,(const void*)0,4); // read saved card serial number from eeprom
+            if(serial2 != serial) // compare saved serial number with current card serial number
             {
-                eeprom_write_block((const void*)&serial, (void*)0, 4);
-                eeprom_write_byte((uint8_t*)4, 0);
+                eeprom_write_block((const void*)&serial, (void*)0, 4); // if not equal write sd card serial to eeprom
+                eeprom_write_byte((uint8_t*)4, 0); // write zero value to eeprom for reset saved filename on next loop
                 goto NO_FILES;
             }
-            goto OPEN_FILE;
+            goto OPEN_FILE; // if serials equal jump to open file (file name read from eeprom)
         }
 
         /// SELECT TRD IMAGE HERE ----------------------------------------------------------------------------
