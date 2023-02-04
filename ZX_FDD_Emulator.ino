@@ -49,13 +49,13 @@ ISR(PCINT1_vect)
 {
     uint8_t pc_val = PINC & (_BV(ENC_A) | _BV(ENC_B)), A=0, B=0;
     if(prev_pc == (_BV(ENC_A) | _BV(ENC_B)) && pc_val != 0)
-    {
-        for(uint8_t i = 0; i < 50; i++)
+    {        
+	for(uint8_t i = 0; i < 10; i++)
         {
             if(PINC & _BV(ENC_A)) A++;
             if(PINC & _BV(ENC_B)) B++;
         }
-        if(A > 48 && B < 2) encoder_val++; else if(B > 48 && A < 2) encoder_val--;
+	if(A > 8) encoder_val++; else if(B > 8) encoder_val--;
     }
     prev_pc = pc_val;
 }
@@ -273,10 +273,20 @@ DIRECTORY_LIST:
 
         first = 1;
 
-        if(readdir(2,0) == 0) {
-            memcpy(&first_dir,&dir,sizeof(dir));
-            f_index++;
+        if(readdir(2,0) != 0) 
+        {
+            if(readdir(2,0) == 0) 
+            {
+                memcpy(&first_dir,&dir,sizeof(dir));
+                f_index++;
+            }
         }
+        else
+        {
+             memcpy(&first_dir,&dir,sizeof(dir));
+             f_index++;          
+        }
+
         if(readdir(3,0) == 0) f_index++;
         
         if(!f_index)
