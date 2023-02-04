@@ -28,7 +28,7 @@ unsigned char twi_start(unsigned char address)
     if ( (tmp != TW_START) && (tmp != TW_REP_START)) return 1;
 
     // send address
-    TWDR = address;
+    TWDR = address << 1; // add bit 0 for write
     TWCR = _BV(TWINT) | _BV(TWEN);
 
     while(!(TWCR & _BV(TWINT)));

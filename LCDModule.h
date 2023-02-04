@@ -6,9 +6,9 @@
 
 // I2C Extender settings
 // - if A0 - A2 connected to VCC (standard chinese modules)
-//   - PCF8574  - 0x27*2 = 0x4E  (0x27 - extender address according to datasheet multiplied by 2)
-//   - PCF8574A - 0x3F*2 = 0x7E
-#define LCDEX_ADDR  0x4E  // Extender address, 0x27*2 for standard chinese module, you should multiply your address by 2!
+//   - PCF8574  - 0x27 (0x27 - extender address according to datasheet)
+//   - PCF8574A - 0x3F
+#define LCDEX_ADDR  0x27  // Extender address, 0x27 for standard chinese module
 
 #define LCDEX_RS    0     // RS pin on extender
 #define LCDEX_RW    1     // RW pin on extender
